@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <!-- Primary Meta Tags -->
+  <title>Bird Game 3D - The Funniest Browser Game | Poop on Everything!</title>
+  <meta name="title" content="Bird Game 3D - The Funniest Browser Game" />
+  <meta name="description" content="Fly as a bird, poop on everyone, bank your coins, and climb the leaderboard. Free browser game - no download required!" />
+  <meta name="keywords" content="bird game, browser game, free game, funny game, 3d game, poop game, online game, webgl" />
+  <meta name="author" content="David" />
+  <meta name="theme-color" content="#87ceeb" />
+  <meta name="color-scheme" content="dark" />
+
+  <!-- Platform / iframe compatibility -->
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+
+  <!-- Open Graph / Facebook -->
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="Bird Game 3D - The Funniest Browser Game" />
+  <meta property="og:description" content="Fly as a bird, poop on everyone, bank your coins! Free browser game - no download required." />
+  <meta property="og:image" content="/og-image.svg" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+
+  <!-- Twitter Card -->
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Bird Game 3D - The Funniest Browser Game" />
+  <meta name="twitter:description" content="Fly as a bird, poop on everyone, bank your coins! Free browser game - no download required." />
+  <meta name="twitter:image" content="/og-image.svg" />
+
+  <!-- Favicons — SVG with PNG fallback -->
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
+  <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />
+  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
+    canvas { display: block; }
+    #hud {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      pointer-events: none;
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      color: #fff;
+      z-index: 10;
+    }
+    @keyframes emote-pop {
+      0% { transform: translate(-50%, -50%) scale(0.5); opacity: 0; }
+      50% { transform: translate(-50%, -50%) scale(1.2); }
+      100% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+    }
+    button { font-family: 'Segoe UI', system-ui, sans-serif; }
+    input[type="range"] {
+      -webkit-appearance: none;
+      height: 6px;
+      background: rgba(255,255,255,0.2);
+      border-radius: 3px;
+      outline: none;
+    }
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 14px; height: 14px;
+      border-radius: 50%;
+      background: #fff;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <div id="hud"></div>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>

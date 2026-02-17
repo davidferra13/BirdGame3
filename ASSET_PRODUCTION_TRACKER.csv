@@ -1,0 +1,324 @@
+ID,Category,Asset Name,Priority,Status,Format,Specs,File Path,Notes,Est. Hours
+001,Character Models,Seagull Base Model,CRITICAL,Not Started,GLB,"500-1000 tris, animated",public/models/characters/seagull_base.glb,Includes fly/glide/dive/idle/turn animations,8-12
+002,Character Models,Classic Seagull Skin,MEDIUM,Not Started,GLB,Match base skeleton,public/models/characters/skins/seagull_classic.glb,,2-3
+003,Character Models,Black Crow Skin,MEDIUM,Not Started,GLB,Match base skeleton,public/models/characters/skins/crow_black.glb,,2-3
+004,Character Models,Brown Pigeon Skin,MEDIUM,Not Started,GLB,Match base skeleton,public/models/characters/skins/pigeon_brown.glb,,2-3
+005,Character Models,Red Cardinal Skin,MEDIUM,Not Started,GLB,Match base skeleton,public/models/characters/skins/cardinal_red.glb,,2-3
+006,Character Models,Blue Jay Skin,MEDIUM,Not Started,GLB,Match base skeleton,public/models/characters/skins/bluejay.glb,,2-3
+007,Character Models,Yellow Canary Skin,MEDIUM,Not Started,GLB,Match base skeleton,public/models/characters/skins/canary_yellow.glb,,2-3
+008,Character Models,Green Parrot Skin,MEDIUM,Not Started,GLB,Match base skeleton,public/models/characters/skins/parrot_green.glb,,2-3
+009,Character Models,Pink Flamingo Skin,MEDIUM,Not Started,GLB,Match base skeleton,public/models/characters/skins/flamingo_pink.glb,,2-3
+010,Character Models,Rainbow Pride Bird,MEDIUM,Not Started,GLB,Match base skeleton,public/models/characters/skins/rainbow_pride.glb,,3-4
+011,Character Models,Ghost Bird,MEDIUM,Not Started,GLB,Transparent shader,public/models/characters/skins/ghost_translucent.glb,,3-4
+012,Character Models,Golden Bird,MEDIUM,Not Started,GLB,Metallic material,public/models/characters/skins/golden_metallic.glb,,3-4
+013,Character Models,Chrome Bird,MEDIUM,Not Started,GLB,Reflective silver,public/models/characters/skins/chrome_silver.glb,,3-4
+014,Character Models,Neon Bird,MEDIUM,Not Started,GLB,Emissive material,public/models/characters/skins/neon_glow.glb,,3-4
+015,Character Models,Crystal Bird,LOW,Not Started,GLB,Translucent refraction,public/models/characters/skins/crystal.glb,,4-5
+016,Character Models,Fire Bird,LOW,Not Started,GLB,Fire shader/particles,public/models/characters/skins/fire_effect.glb,,5-6
+017,Character Models,Ice Bird,LOW,Not Started,GLB,Frost shader,public/models/characters/skins/ice_frost.glb,,4-5
+018,Character Models,Galaxy Bird,LOW,Not Started,GLB,Space/star texture,public/models/characters/skins/galaxy_space.glb,,3-4
+019,Character Models,Zombie Bird,LOW,Not Started,GLB,Decayed comedic,public/models/characters/skins/zombie_decayed.glb,,4-5
+020,Character Models,Tuxedo Bird,MEDIUM,Not Started,GLB,Formal black & white,public/models/characters/skins/tuxedo_formal.glb,,2-3
+021,Character Models,Chicken,LOW,Not Started,GLB,Comedic alternative,public/models/characters/skins/chicken_comedic.glb,,4-5
+022,NPC Models,Businessman - Male,CRITICAL,Not Started,GLB,"500-1500 tris, walk anim",public/models/npcs/businessman_male.glb,,4-6
+023,NPC Models,Businesswoman - Female,CRITICAL,Not Started,GLB,"500-1500 tris, walk anim",public/models/npcs/businesswoman_female.glb,,4-6
+024,NPC Models,Tourist,HIGH,Not Started,GLB,"Camera, hat props",public/models/npcs/tourist.glb,,4-6
+025,NPC Models,Jogger - Male,HIGH,Not Started,GLB,Run animation,public/models/npcs/jogger_male.glb,,4-6
+026,NPC Models,Jogger - Female,HIGH,Not Started,GLB,Run animation,public/models/npcs/jogger_female.glb,,4-6
+027,NPC Models,Street Musician,MEDIUM,Not Started,GLB,Guitar prop,public/models/npcs/musician_street.glb,,4-6
+028,NPC Models,Mime,MEDIUM,Not Started,GLB,Striped outfit,public/models/npcs/mime.glb,,3-5
+029,NPC Models,Construction Worker,HIGH,Not Started,GLB,"Hard hat, vest",public/models/npcs/construction_worker.glb,,4-6
+030,NPC Models,Hot Dog Vendor,MEDIUM,Not Started,GLB,Cart included,public/models/npcs/hotdog_vendor.glb,,5-7
+031,NPC Models,Dog Walker,MEDIUM,Not Started,GLB,Person + dog,public/models/npcs/dog_walker.glb,,5-7
+032,NPC Models,Stroller Parent,MEDIUM,Not Started,GLB,With stroller,public/models/npcs/stroller_parent.glb,,5-7
+033,NPC Models,Teenager,HIGH,Not Started,GLB,Backpack,public/models/npcs/teenager.glb,,3-5
+034,NPC Models,Elderly Person,MEDIUM,Not Started,GLB,Walker/cane,public/models/npcs/elderly.glb,,4-6
+035,NPC Models,Police Officer,HIGH,Not Started,GLB,Uniform,public/models/npcs/police_officer.glb,Important for wanted mechanic,4-6
+036,NPC Models,Chef,DONE,Complete,GLB,Existing,public/models/characters/chef.glb,Already exists,0
+037,NPC Models,Delivery Person,MEDIUM,Not Started,GLB,Box prop,public/models/npcs/delivery_person.glb,,4-6
+038,NPC Models,Student,MEDIUM,Not Started,GLB,"Backpack, books",public/models/npcs/student.glb,,4-6
+039,NPC Models,Skateboarder,MEDIUM,Not Started,GLB,Skateboard,public/models/npcs/skateboarder.glb,,4-6
+040,NPC Models,Office Worker,HIGH,Not Started,GLB,Coffee cup,public/models/npcs/office_worker.glb,,3-5
+041,Buildings,Office Building - Small,CRITICAL,Not Started,GLB,2000-5000 tris,public/models/buildings/office_small.glb,3-5 stories,6-8
+042,Buildings,Office Building - Medium,CRITICAL,Not Started,GLB,3000-6000 tris,public/models/buildings/office_medium.glb,6-10 stories,8-10
+043,Buildings,Office Building - Large,CRITICAL,Not Started,GLB,Use LOD,public/models/buildings/skyscraper_large.glb,15+ stories,10-15
+044,Buildings,Shopping Mall,HIGH,Not Started,GLB,4000-8000 tris,public/models/buildings/shopping_mall.glb,Wide 2-3 stories,8-10
+045,Buildings,Restaurant Building,HIGH,Not Started,GLB,2000-4000 tris,public/models/buildings/restaurant.glb,Corner lot style,5-7
+046,Buildings,Coffee Shop,HIGH,Not Started,GLB,1500-3000 tris,public/models/buildings/coffee_shop.glb,Small corner,4-6
+047,Buildings,Bank Building,MEDIUM,Not Started,GLB,3000-5000 tris,public/models/buildings/bank.glb,Classical facade,6-8
+048,Buildings,Hotel,MEDIUM,Not Started,GLB,4000-7000 tris,public/models/buildings/hotel.glb,Mid-rise distinct,7-9
+049,Buildings,Department Store,HIGH,Not Started,GLB,3000-6000 tris,public/models/buildings/department_store.glb,Large retail,6-8
+050,Buildings,Movie Theater,MEDIUM,Not Started,GLB,2500-5000 tris,public/models/buildings/movie_theater.glb,Art deco style,6-8
+051,Buildings,Apartment - Low-rise,CRITICAL,Not Started,GLB,2500-5000 tris,public/models/buildings/apartment_lowrise.glb,3-4 stories,5-7
+052,Buildings,Apartment - Mid-rise,HIGH,Not Started,GLB,3500-6000 tris,public/models/buildings/apartment_midrise.glb,5-8 stories,7-9
+053,Buildings,Apartment - High-rise,HIGH,Not Started,GLB,5000-9000 tris,public/models/buildings/apartment_highrise.glb,12+ stories,9-12
+054,Buildings,Townhouse Row,MEDIUM,Not Started,GLB,3000-5000 tris,public/models/buildings/townhouse_row.glb,Connected units,6-8
+055,Buildings,Single Family Home,MEDIUM,Not Started,GLB,1500-3000 tris,public/models/buildings/house_suburban.glb,Suburban style,4-6
+056,Buildings,Sanctuary Building,CRITICAL,Not Started,GLB,Green emissive glow,public/models/buildings/sanctuary.glb,Critical for banking mechanic,8-10
+057,Buildings,Police Station,HIGH,Not Started,GLB,3000-5000 tris,public/models/buildings/police_station.glb,,6-8
+058,Buildings,Fire Station,MEDIUM,Not Started,GLB,2500-4500 tris,public/models/buildings/fire_station.glb,,6-8
+059,Buildings,City Hall,MEDIUM,Not Started,GLB,4000-7000 tris,public/models/buildings/city_hall.glb,Iconic dome,8-10
+060,Buildings,Library,MEDIUM,Not Started,GLB,3000-5000 tris,public/models/buildings/library.glb,Classical columns,6-8
+061,Buildings,Museum,MEDIUM,Not Started,GLB,3500-6000 tris,public/models/buildings/museum.glb,Modern architecture,7-9
+062,Buildings,Church/Cathedral,MEDIUM,Not Started,GLB,3000-6000 tris,public/models/buildings/church.glb,Spire,7-10
+063,Buildings,Parking Garage,HIGH,Not Started,GLB,2500-5000 tris,public/models/buildings/parking_garage.glb,Open levels visible,5-7
+064,Nature,Tree - Oak (var 1),CRITICAL,Not Started,GLB,500-1500 tris,public/models/nature/tree_oak_01.glb,,3-5
+065,Nature,Tree - Oak (var 2),CRITICAL,Not Started,GLB,500-1500 tris,public/models/nature/tree_oak_02.glb,,3-5
+066,Nature,Tree - Pine (var 1),CRITICAL,Not Started,GLB,500-1500 tris,public/models/nature/tree_pine_01.glb,,3-5
+067,Nature,Tree - Pine (var 2),HIGH,Not Started,GLB,500-1500 tris,public/models/nature/tree_pine_02.glb,,3-5
+068,Nature,Palm Tree,MEDIUM,Not Started,GLB,600-1800 tris,public/models/nature/tree_palm.glb,,4-6
+069,Nature,Bush - Small,HIGH,Not Started,GLB,200-500 tris,public/models/nature/bush_small.glb,,2-3
+070,Nature,Bush - Large,HIGH,Not Started,GLB,300-700 tris,public/models/nature/bush_large.glb,,2-4
+071,Nature,Hedge - Rectangular,MEDIUM,Not Started,GLB,300-600 tris,public/models/nature/hedge_rectangular.glb,,2-4
+072,Nature,Flower Bed - Circular,MEDIUM,Not Started,GLB,400-800 tris,public/models/nature/flowerbed_circular.glb,,3-5
+073,Nature,Flower Bed - Rectangular,MEDIUM,Not Started,GLB,400-800 tris,public/models/nature/flowerbed_rectangular.glb,,3-5
+074,Nature,Grass Patch,MEDIUM,Not Started,GLB,200-500 tris,public/models/nature/grass_patch.glb,,2-3
+075,Props,Park Bench - Wooden,CRITICAL,Not Started,GLB,300-800 tris,public/models/props/bench_wooden.glb,,2-4
+076,Props,Park Bench - Metal,HIGH,Not Started,GLB,300-800 tris,public/models/props/bench_metal.glb,,2-4
+077,Props,Park Bench - Modern,MEDIUM,Not Started,GLB,300-800 tris,public/models/props/bench_modern.glb,,2-4
+078,Props,Fountain - Classical,HIGH,Not Started,GLB,Water material,public/models/props/fountain_classical.glb,,5-7
+079,Props,Fountain - Modern,MEDIUM,Not Started,GLB,800-1500 tris,public/models/props/fountain_modern.glb,,4-6
+080,Props,Trash Can - Standard,HIGH,Not Started,GLB,200-500 tris,public/models/props/trashcan_standard.glb,,2-3
+081,Props,Trash Can - Recycling,MEDIUM,Not Started,GLB,200-500 tris,public/models/props/trashcan_recycling.glb,,2-3
+082,Props,Picnic Table,MEDIUM,Not Started,GLB,400-900 tris,public/models/props/picnic_table.glb,,3-4
+083,Props,Street Lamp - Classical,HIGH,Not Started,GLB,Emissive light,public/models/props/streetlamp_classical.glb,,3-5
+084,Props,Street Lamp - Modern,HIGH,Not Started,GLB,Emissive light,public/models/props/streetlamp_modern.glb,,3-5
+085,Props,Mailbox,MEDIUM,Not Started,GLB,200-400 tris,public/models/props/mailbox.glb,,2-3
+086,Props,Fire Hydrant,MEDIUM,Not Started,GLB,300-600 tris,public/models/props/fire_hydrant.glb,,2-3
+087,Props,Bike Rack,MEDIUM,Not Started,GLB,300-600 tris,public/models/props/bike_rack.glb,,2-4
+088,Props,Playground Slide,LOW,Not Started,GLB,600-1200 tris,public/models/props/playground_slide.glb,,4-6
+089,Props,Playground Swings,LOW,Not Started,GLB,700-1400 tris,public/models/props/playground_swings.glb,,4-6
+090,Props,Statue - Abstract,MEDIUM,Not Started,GLB,500-1000 tris,public/models/props/statue_abstract.glb,,3-5
+091,Props,Statue - Historical,MEDIUM,Not Started,GLB,600-1200 tris,public/models/props/statue_historical.glb,,4-6
+092,Props,Gazebo/Pavilion,MEDIUM,Not Started,GLB,800-1600 tris,public/models/props/gazebo.glb,,5-7
+093,Roads,Road Tile - Straight,CRITICAL,Not Started,GLB,Seamless 1024x1024,public/models/roads/road_straight.glb,,2-3
+094,Roads,Road Tile - T-intersection,CRITICAL,Not Started,GLB,Seamless,public/models/roads/road_t_intersection.glb,,2-3
+095,Roads,Road Tile - 4-way,CRITICAL,Not Started,GLB,Seamless,public/models/roads/road_4way_intersection.glb,,2-3
+096,Roads,Road Tile - Curved,HIGH,Not Started,GLB,Seamless,public/models/roads/road_curved.glb,,2-3
+097,Roads,Sidewalk - Straight,HIGH,Not Started,GLB,Seamless,public/models/roads/sidewalk_straight.glb,,1-2
+098,Roads,Sidewalk - Corner,HIGH,Not Started,GLB,Seamless,public/models/roads/sidewalk_corner.glb,,1-2
+099,Roads,Crosswalk Marking,MEDIUM,Not Started,GLB/Decal,Seamless,public/models/roads/crosswalk.glb,,1-2
+100,Textures,Pavement Texture,CRITICAL,Not Started,PNG/WebP,1024x1024 seamless,public/textures/pavement_seamless.png,,1
+101,Textures,Grass Texture,CRITICAL,Not Started,PNG/WebP,1024x1024 seamless,public/textures/grass_seamless.png,,1
+102,Textures,Dirt/Gravel Texture,MEDIUM,Not Started,PNG/WebP,1024x1024 seamless,public/textures/dirt_seamless.png,,1
+103,Props,Traffic Light,HIGH,Not Started,GLB,Emissive materials,public/models/props/traffic_light.glb,,3-4
+104,Props,Stop Sign,MEDIUM,Not Started,GLB,300-500 tris,public/models/props/stop_sign.glb,,1-2
+105,Props,Street Sign Post,MEDIUM,Not Started,GLB,200-400 tris,public/models/props/street_sign.glb,,2-3
+106,Props,Parking Meter,MEDIUM,Not Started,GLB,300-600 tris,public/models/props/parking_meter.glb,,2-3
+107,Props,News Stand/Kiosk,MEDIUM,Not Started,GLB,500-1000 tris,public/models/props/newsstand.glb,,3-5
+108,Props,Bus Stop Shelter,MEDIUM,Not Started,GLB,600-1200 tris,public/models/props/bus_stop.glb,,4-6
+109,Props,Phone Booth,MEDIUM,Not Started,GLB,400-800 tris,public/models/props/phone_booth.glb,,3-4
+110,Props,Awning,MEDIUM,Not Started,GLB,200-500 tris,public/models/props/awning.glb,,2-3
+111,Props,Dumpster,HIGH,Not Started,GLB,400-800 tris,public/models/props/dumpster.glb,,3-4
+112,Props,Barrier/Bollard,MEDIUM,Not Started,GLB,100-300 tris,public/models/props/bollard.glb,,1-2
+113,Props,Planter Box,MEDIUM,Not Started,GLB,300-600 tris,public/models/props/planter_concrete.glb,,2-3
+114,Props,Manhole Cover,MEDIUM,Not Started,GLB/Texture,Seamless,public/models/props/manhole.glb,,1-2
+115,Vehicles,Car - Sedan,HIGH,Not Started,GLB,1000-2000 tris,public/models/vehicles/car_sedan.glb,,4-6
+116,Vehicles,Car - SUV,HIGH,Not Started,GLB,1000-2000 tris,public/models/vehicles/car_suv.glb,,4-6
+117,Vehicles,Car - Sports,MEDIUM,Not Started,GLB,1200-2200 tris,public/models/vehicles/car_sports.glb,,5-7
+118,Vehicles,Taxi,MEDIUM,Not Started,GLB,1000-2000 tris,public/models/vehicles/taxi.glb,Yellow color,4-6
+119,Vehicles,Police Car,HIGH,Not Started,GLB,1000-2000 tris,public/models/vehicles/police_car.glb,For wanted mechanic,4-6
+120,Vehicles,Delivery Truck,MEDIUM,Not Started,GLB,1500-2500 tris,public/models/vehicles/truck_delivery.glb,,5-7
+121,Vehicles,Bus,MEDIUM,Not Started,GLB,2000-3500 tris,public/models/vehicles/bus.glb,,6-8
+122,Vehicles,Bicycle,MEDIUM,Not Started,GLB,400-800 tris,public/models/vehicles/bicycle.glb,,2-3
+123,Food Props,Sandwich,CRITICAL,Not Started,GLB,100-300 tris,public/models/food/sandwich.glb,,1-2
+124,Food Props,Hot Dog,CRITICAL,Not Started,GLB,100-300 tris,public/models/food/hotdog.glb,,1-2
+125,Food Props,Ice Cream Cone,CRITICAL,Not Started,GLB,150-350 tris,public/models/food/icecream_cone.glb,,1-2
+126,Food Props,Coffee Cup,HIGH,Not Started,GLB,100-250 tris,public/models/food/coffee_cup.glb,,1-2
+127,Food Props,Pizza Slice,HIGH,Not Started,GLB,100-300 tris,public/models/food/pizza_slice.glb,,1-2
+128,Food Props,Burger,HIGH,Not Started,GLB,200-400 tris,public/models/food/burger.glb,,1-2
+129,Food Props,French Fries,MEDIUM,Not Started,GLB,150-350 tris,public/models/food/fries.glb,,1-2
+130,Food Props,Soda Cup,MEDIUM,Not Started,GLB,100-250 tris,public/models/food/soda_cup.glb,,1-2
+131,Food Props,Donut,MEDIUM,Not Started,GLB,150-300 tris,public/models/food/donut.glb,,1-2
+132,Food Props,Pretzel,MEDIUM,Not Started,GLB,200-400 tris,public/models/food/pretzel.glb,,1-2
+133,Food Props,Popcorn Bag,MEDIUM,Not Started,GLB,150-300 tris,public/models/food/popcorn.glb,,1-2
+134,Particle Textures,Poop Splat Default,CRITICAL,Not Started,PNG,512x512 transparent,public/textures/particles/splat_default.png,,1
+135,Particle Textures,Poop Splat Var 2,MEDIUM,Not Started,PNG,512x512 transparent,public/textures/particles/splat_variation_02.png,,1
+136,Particle Textures,Poop Splat Var 3,MEDIUM,Not Started,PNG,512x512 transparent,public/textures/particles/splat_variation_03.png,,1
+137,Particle Textures,Feather - White,HIGH,Not Started,PNG,128x128 transparent,public/textures/particles/feather_white.png,,0.5
+138,Particle Textures,Feather - Gold,MEDIUM,Not Started,PNG,128x128 transparent,public/textures/particles/feather_gold.png,,0.5
+139,Particle Textures,Speed Lines,MEDIUM,Not Started,PNG,256x256 transparent,public/textures/particles/speed_lines.png,,1
+140,Particle Textures,Boost Trail,MEDIUM,Not Started,PNG,256x256 transparent,public/textures/particles/boost_trail.png,,1
+141,Particle Textures,Banking Glow Green,CRITICAL,Not Started,PNG,512x512 transparent,public/textures/particles/banking_glow_green.png,,1
+142,Particle Textures,Coin Sparkle,HIGH,Not Started,PNG,128x128 transparent,public/textures/particles/coin_sparkle.png,,0.5
+143,Particle Textures,XP Burst Star,HIGH,Not Started,PNG,256x256 transparent,public/textures/particles/xp_burst_star.png,,1
+144,Particle Textures,Hit Flash Red,HIGH,Not Started,PNG,256x256 transparent,public/textures/particles/hit_flash_red.png,,0.5
+145,Particle Textures,Smoke Puff,MEDIUM,Not Started,PNG,256x256 transparent,public/textures/particles/smoke_puff.png,,1
+146,Particle Textures,Dust Cloud,MEDIUM,Not Started,PNG,256x256 transparent,public/textures/particles/dust_cloud.png,,1
+147,Particle Textures,Heart Icon,MEDIUM,Not Started,PNG,128x128 transparent,public/textures/particles/heart_icon.png,,0.5
+148,Particle Textures,Skull Icon,MEDIUM,Not Started,PNG,128x128 transparent,public/textures/particles/skull_icon.png,,0.5
+149,Trail Effects,Classic White Trail,MEDIUM,Not Started,PNG,256x256 transparent,public/textures/trails/trail_white.png,,1
+150,Trail Effects,Rainbow Trail,MEDIUM,Not Started,PNG,256x256 transparent,public/textures/trails/trail_rainbow.png,,1
+151,Trail Effects,Fire Trail,MEDIUM,Not Started,PNG,256x256 transparent,public/textures/trails/trail_fire.png,,1
+152,Trail Effects,Ice Trail,MEDIUM,Not Started,PNG,256x256 transparent,public/textures/trails/trail_ice.png,,1
+153,Trail Effects,Electric Trail,MEDIUM,Not Started,PNG,256x256 transparent,public/textures/trails/trail_electric.png,,1
+154,Trail Effects,Fairy Dust Trail,MEDIUM,Not Started,PNG,256x256 transparent,public/textures/trails/trail_fairy.png,,1
+155,Trail Effects,Toxic Trail,MEDIUM,Not Started,PNG,256x256 transparent,public/textures/trails/trail_toxic.png,,1
+156,Trail Effects,Galaxy Trail,LOW,Not Started,PNG,256x256 transparent,public/textures/trails/trail_galaxy.png,,1
+157,Trail Effects,Hearts Trail,LOW,Not Started,PNG,256x256 transparent,public/textures/trails/trail_hearts.png,,1
+158,Trail Effects,Money Trail,LOW,Not Started,PNG,256x256 transparent,public/textures/trails/trail_money.png,,1
+159,Trail Effects,Feather Trail,MEDIUM,Not Started,PNG,256x256 transparent,public/textures/trails/trail_feathers.png,,1
+160,Trail Effects,Neon Trail,MEDIUM,Not Started,PNG,256x256 transparent,public/textures/trails/trail_neon.png,,1
+161,Trail Effects,Shadow Trail,MEDIUM,Not Started,PNG,256x256 transparent,public/textures/trails/trail_shadow.png,,1
+162,Trail Effects,Bubble Trail,LOW,Not Started,PNG,256x256 transparent,public/textures/trails/trail_bubbles.png,,1
+163,Trail Effects,Leaf Trail,LOW,Not Started,PNG,256x256 transparent,public/textures/trails/trail_leaves.png,,1
+164,Splat Effects,Classic Brown Splat,DONE,Complete,PNG,See #134,Use #134,See particle texture #134,0
+165,Splat Effects,Rainbow Splat,MEDIUM,Not Started,PNG,512x512 transparent,public/textures/splats/splat_rainbow.png,,1
+166,Splat Effects,Gold Splat,MEDIUM,Not Started,PNG,512x512 transparent,public/textures/splats/splat_gold.png,,1
+167,Splat Effects,Glitter Splat,MEDIUM,Not Started,PNG,512x512 transparent,public/textures/splats/splat_glitter.png,,1
+168,Splat Effects,Neon Splat,MEDIUM,Not Started,PNG,512x512 transparent,public/textures/splats/splat_neon.png,,1
+169,Splat Effects,Ice Splat,MEDIUM,Not Started,PNG,512x512 transparent,public/textures/splats/splat_ice.png,,1
+170,Splat Effects,Fire Splat,MEDIUM,Not Started,PNG,512x512 transparent,public/textures/splats/splat_fire.png,,1
+171,Splat Effects,Toxic Splat,MEDIUM,Not Started,PNG,512x512 transparent,public/textures/splats/splat_toxic.png,,1
+172,Splat Effects,Heart Splat,LOW,Not Started,PNG,512x512 transparent,public/textures/splats/splat_hearts.png,,1
+173,Splat Effects,Star Splat,LOW,Not Started,PNG,512x512 transparent,public/textures/splats/splat_stars.png,,1
+174,Splat Effects,Money Splat,LOW,Not Started,PNG,512x512 transparent,public/textures/splats/splat_money.png,,1
+175,Splat Effects,Confetti Splat,LOW,Not Started,PNG,512x512 transparent,public/textures/splats/splat_confetti.png,,1
+176,UI - HUD,Heat Meter Background,CRITICAL,Not Started,PNG,300x50,public/textures/ui/hud/heat_meter_bg.png,,1
+177,UI - HUD,Heat Meter Fill,CRITICAL,Not Started,PNG,300x50 gradient,public/textures/ui/hud/heat_meter_fill.png,,1
+178,UI - HUD,Multiplier Badge,CRITICAL,Not Started,PNG,128x128,public/textures/ui/hud/multiplier_badge.png,,1
+179,UI - HUD,Coin Icon,CRITICAL,Not Started,PNG,64x64,public/textures/ui/hud/coin_icon.png,,0.5
+180,UI - HUD,XP Bar Background,CRITICAL,Not Started,PNG,400x40,public/textures/ui/hud/xp_bar_bg.png,,0.5
+181,UI - HUD,XP Bar Fill,CRITICAL,Not Started,PNG,400x40 gradient,public/textures/ui/hud/xp_bar_fill.png,,0.5
+182,UI - HUD,Level Badge Frame,HIGH,Not Started,PNG,128x128,public/textures/ui/hud/level_badge.png,,1
+183,UI - HUD,Minimap Border,HIGH,Not Started,PNG,256x256,public/textures/ui/hud/minimap_border.png,,1
+184,UI - HUD,Minimap Background,HIGH,Not Started,PNG,256x256,public/textures/ui/hud/minimap_bg.png,,0.5
+185,UI - HUD,Wanted Alert Banner,CRITICAL,Not Started,PNG,800x150,public/textures/ui/hud/wanted_alert.png,,1
+186,UI - HUD,Sanctuary Icon,CRITICAL,Not Started,PNG,64x64,public/textures/ui/hud/sanctuary_icon.png,,0.5
+187,UI - HUD,Player Arrow,HIGH,Not Started,PNG,64x64,public/textures/ui/hud/player_arrow.png,,0.5
+188,UI - HUD,Crosshair,MEDIUM,Not Started,PNG,64x64 transparent,public/textures/ui/hud/crosshair.png,,0.5
+189,UI - Menu,Button Default,HIGH,Not Started,PNG,300x80,public/textures/ui/menu/button_default.png,,1
+190,UI - Menu,Button Hover,HIGH,Not Started,PNG,300x80,public/textures/ui/menu/button_hover.png,,0.5
+191,UI - Menu,Button Pressed,HIGH,Not Started,PNG,300x80,public/textures/ui/menu/button_pressed.png,,0.5
+192,UI - Menu,Button Disabled,HIGH,Not Started,PNG,300x80,public/textures/ui/menu/button_disabled.png,,0.5
+193,UI - Menu,Panel Background,HIGH,Not Started,PNG,800x600,public/textures/ui/menu/panel_bg.png,,1
+194,UI - Menu,Tab Inactive,MEDIUM,Not Started,PNG,200x60,public/textures/ui/menu/tab_inactive.png,,0.5
+195,UI - Menu,Tab Active,MEDIUM,Not Started,PNG,200x60,public/textures/ui/menu/tab_active.png,,0.5
+196,UI - Menu,Checkbox Unchecked,MEDIUM,Not Started,PNG,64x64,public/textures/ui/menu/checkbox_unchecked.png,,0.5
+197,UI - Menu,Checkbox Checked,MEDIUM,Not Started,PNG,64x64,public/textures/ui/menu/checkbox_checked.png,,0.5
+198,UI - Menu,Slider Track,MEDIUM,Not Started,PNG,300x20,public/textures/ui/menu/slider_track.png,,0.5
+199,UI - Menu,Slider Handle,MEDIUM,Not Started,PNG,40x40,public/textures/ui/menu/slider_handle.png,,0.5
+200,UI - Menu,Dropdown Arrow,MEDIUM,Not Started,PNG,32x32,public/textures/ui/menu/dropdown_arrow.png,,0.25
+201,UI - Menu,Close Button,HIGH,Not Started,PNG,64x64,public/textures/ui/menu/btn_close.png,,0.5
+202,UI - Menu,Back Button,HIGH,Not Started,PNG,64x64,public/textures/ui/menu/btn_back.png,,0.5
+203,UI - Menu,Settings Gear Icon,MEDIUM,Not Started,PNG,64x64,public/textures/ui/menu/icon_settings.png,,0.5
+204,UI - Menu,Audio Icon On,MEDIUM,Not Started,PNG,64x64,public/textures/ui/menu/icon_audio_on.png,,0.5
+205,UI - Menu,Audio Icon Muted,MEDIUM,Not Started,PNG,64x64,public/textures/ui/menu/icon_audio_muted.png,,0.5
+206,UI - Menu,Fullscreen Icon,MEDIUM,Not Started,PNG,64x64,public/textures/ui/menu/icon_fullscreen.png,,0.5
+207,UI - Menu,Exit Icon,MEDIUM,Not Started,PNG,64x64,public/textures/ui/menu/icon_exit.png,,0.5
+208,UI - Shop,Cosmetic Card Background,MEDIUM,Not Started,PNG,300x400,public/textures/ui/shop/card_bg.png,,1
+209,UI - Shop,Border Common Grey,MEDIUM,Not Started,PNG,300x400 frame,public/textures/ui/shop/border_common.png,,0.5
+210,UI - Shop,Border Rare Blue,MEDIUM,Not Started,PNG,300x400 frame,public/textures/ui/shop/border_rare.png,,0.5
+211,UI - Shop,Border Epic Purple,MEDIUM,Not Started,PNG,300x400 frame,public/textures/ui/shop/border_epic.png,,0.5
+212,UI - Shop,Border Legendary Gold,MEDIUM,Not Started,PNG,300x400 frame,public/textures/ui/shop/border_legendary.png,,0.5
+213,UI - Shop,Lock Icon,MEDIUM,Not Started,PNG,64x64,public/textures/ui/shop/icon_locked.png,,0.5
+214,UI - Shop,Checkmark Owned,MEDIUM,Not Started,PNG,64x64,public/textures/ui/shop/icon_owned.png,,0.5
+215,UI - Shop,Equipped Badge,MEDIUM,Not Started,PNG,150x50,public/textures/ui/shop/badge_equipped.png,,0.5
+216,UI - Shop,Price Tag,MEDIUM,Not Started,PNG,150x60,public/textures/ui/shop/price_tag.png,,0.5
+217,UI - Shop,Coin Currency Icon,MEDIUM,Not Started,PNG,64x64,public/textures/ui/shop/currency_coin.png,,0.5
+218,UI - Shop,Feather Currency Icon,MEDIUM,Not Started,PNG,64x64,public/textures/ui/shop/currency_feather.png,,0.5
+219,UI - Popups,Floating Text Background,HIGH,Not Started,PNG,200x80,public/textures/ui/popups/floating_text_bg.png,,0.5
+220,UI - Popups,Banking Progress Ring,CRITICAL,Not Started,PNG,256x256 transparent,public/textures/ui/popups/banking_ring.png,,1
+221,UI - Popups,Level Up Burst,HIGH,Not Started,PNG,512x512 transparent,public/textures/ui/popups/levelup_burst.png,,1
+222,UI - Popups,Achievement Banner,MEDIUM,Not Started,PNG,800x150,public/textures/ui/popups/achievement_banner.png,,1
+223,UI - Popups,Mission Complete Banner,MEDIUM,Not Started,PNG,800x150,public/textures/ui/popups/mission_complete.png,,1
+224,UI - Popups,Vignette Grounded,HIGH,Not Started,PNG,1920x1080,public/textures/ui/popups/vignette_grounded.png,,0.5
+225,UI - Popups,Fade Black Overlay,HIGH,Not Started,PNG,1920x1080,public/textures/ui/popups/fade_black.png,,0.25
+226,UI - Popups,Tutorial Prompt,MEDIUM,Not Started,PNG,400x150,public/textures/ui/popups/tutorial_prompt.png,,1
+227,UI - Popups,Dialogue Box,MEDIUM,Not Started,PNG,800x200,public/textures/ui/popups/dialogue_box.png,,1
+228,UI - Popups,Speaker Nameplate,MEDIUM,Not Started,PNG,300x60,public/textures/ui/popups/nameplate.png,,0.5
+229,Nameplate Frames,Default Frame,MEDIUM,Not Started,PNG,400x100,public/textures/ui/nameplates/frame_default.png,,0.5
+230,Nameplate Frames,Bronze Frame,MEDIUM,Not Started,PNG,400x100,public/textures/ui/nameplates/frame_bronze.png,,0.5
+231,Nameplate Frames,Silver Frame,MEDIUM,Not Started,PNG,400x100,public/textures/ui/nameplates/frame_silver.png,,0.5
+232,Nameplate Frames,Gold Frame,MEDIUM,Not Started,PNG,400x100,public/textures/ui/nameplates/frame_gold.png,,0.5
+233,Nameplate Frames,Platinum Frame,LOW,Not Started,PNG,400x100,public/textures/ui/nameplates/frame_platinum.png,,0.5
+234,Nameplate Frames,Wooden Frame,MEDIUM,Not Started,PNG,400x100,public/textures/ui/nameplates/frame_wooden.png,,0.5
+235,Nameplate Frames,Ornate Royal Frame,LOW,Not Started,PNG,400x100,public/textures/ui/nameplates/frame_royal.png,,1
+236,Nameplate Frames,Cyberpunk Neon Frame,LOW,Not Started,PNG,400x100,public/textures/ui/nameplates/frame_cyberpunk.png,,1
+237,Nameplate Frames,Nature Leaf Frame,LOW,Not Started,PNG,400x100,public/textures/ui/nameplates/frame_nature.png,,1
+238,Nameplate Frames,Fire Flame Frame,LOW,Not Started,PNG,400x100,public/textures/ui/nameplates/frame_fire.png,,1
+254,Audio - Bird,Wing Flap Loop,CRITICAL,Not Started,MP3/OGG,0.5s loop,public/audio/sfx/bird/wing_flap.mp3,,1
+255,Audio - Bird,Dive Whoosh,CRITICAL,Not Started,MP3/OGG,1-2s,public/audio/sfx/bird/dive_whoosh.mp3,,1
+256,Audio - Bird,Boost Activation,HIGH,Not Started,MP3/OGG,1s,public/audio/sfx/bird/boost_activate.mp3,,1
+257,Audio - Bird,Hit Surface,MEDIUM,Not Started,MP3/OGG,0.5s,public/audio/sfx/bird/hit_surface.mp3,,0.5
+258,Audio - Bird,Feather Ruffle,MEDIUM,Not Started,MP3/OGG,0.5s,public/audio/sfx/bird/feather_ruffle.mp3,,0.5
+259,Audio - Poop,Poop Launch,CRITICAL,Not Started,MP3/OGG,0.5s,public/audio/sfx/poop/poop_launch.mp3,,0.5
+260,Audio - Poop,Splat Impact 1,CRITICAL,Not Started,MP3/OGG,0.5s,public/audio/sfx/poop/splat_01.mp3,,0.5
+261,Audio - Poop,Splat Impact 2,HIGH,Not Started,MP3/OGG,0.5s,public/audio/sfx/poop/splat_02.mp3,,0.5
+262,Audio - Poop,Splat Impact 3,HIGH,Not Started,MP3/OGG,0.5s,public/audio/sfx/poop/splat_03.mp3,,0.5
+263,Audio - NPCs,NPC Hit Male 1,CRITICAL,Not Started,MP3/OGG,1s,public/audio/sfx/npc/hit_male_01.mp3,,0.5
+264,Audio - NPCs,NPC Hit Male 2,HIGH,Not Started,MP3/OGG,1s,public/audio/sfx/npc/hit_male_02.mp3,,0.5
+265,Audio - NPCs,NPC Hit Female 1,HIGH,Not Started,MP3/OGG,1s,public/audio/sfx/npc/hit_female_01.mp3,,0.5
+266,Audio - NPCs,NPC Hit Female 2,HIGH,Not Started,MP3/OGG,1s,public/audio/sfx/npc/hit_female_02.mp3,,0.5
+267,Audio - NPCs,Crowd Gasp,MEDIUM,Not Started,MP3/OGG,1-2s,public/audio/sfx/npc/crowd_gasp.mp3,,1
+268,Audio - UI,Coin Collect,CRITICAL,Not Started,MP3/OGG,0.5s,public/audio/sfx/ui/coin_collect.mp3,,0.5
+269,Audio - UI,Coin Jingle,HIGH,Not Started,MP3/OGG,1s,public/audio/sfx/ui/coin_jingle.mp3,,0.5
+270,Audio - UI,XP Gain,HIGH,Not Started,MP3/OGG,1s,public/audio/sfx/ui/xp_gain.mp3,,0.5
+271,Audio - UI,Level Up Fanfare,HIGH,Not Started,MP3/OGG,3-5s,public/audio/sfx/ui/levelup_fanfare.mp3,,1-2
+272,Audio - UI,Banking Start,CRITICAL,Not Started,MP3/OGG,1s,public/audio/sfx/ui/banking_start.mp3,,0.5
+273,Audio - UI,Banking Complete,CRITICAL,Not Started,MP3/OGG,2s,public/audio/sfx/ui/banking_complete.mp3,,1
+274,Audio - UI,Banking Cancel,HIGH,Not Started,MP3/OGG,0.5s,public/audio/sfx/ui/banking_cancel.mp3,,0.5
+275,Audio - UI,Button Click,HIGH,Not Started,MP3/OGG,0.2s,public/audio/sfx/ui/button_click.mp3,,0.25
+276,Audio - UI,Button Hover,MEDIUM,Not Started,MP3/OGG,0.2s,public/audio/sfx/ui/button_hover.mp3,,0.25
+277,Audio - UI,Menu Open,MEDIUM,Not Started,MP3/OGG,0.5s,public/audio/sfx/ui/menu_open.mp3,,0.5
+278,Audio - UI,Menu Close,MEDIUM,Not Started,MP3/OGG,0.5s,public/audio/sfx/ui/menu_close.mp3,,0.5
+279,Audio - UI,Achievement Unlock,MEDIUM,Not Started,MP3/OGG,2s,public/audio/sfx/ui/achievement_unlock.mp3,,1
+280,Audio - UI,Warning Alert,HIGH,Not Started,MP3/OGG,2s,public/audio/sfx/ui/warning_alert.mp3,,1
+281,Audio - UI,Notification Ping,MEDIUM,Not Started,MP3/OGG,0.5s,public/audio/sfx/ui/notification_ping.mp3,,0.5
+282,Audio - Ambient,City Noise Loop,MEDIUM,Not Started,MP3/OGG,Loop 2-3min,public/audio/sfx/ambient/city_ambience.mp3,,2
+283,Audio - Ambient,Car Horn,MEDIUM,Not Started,MP3/OGG,1s,public/audio/sfx/ambient/car_horn.mp3,,0.5
+284,Audio - Ambient,Police Siren,HIGH,Not Started,MP3/OGG,Loop 5s,public/audio/sfx/ambient/police_siren.mp3,,1
+285,Audio - Ambient,Fountain Water Loop,MEDIUM,Not Started,MP3/OGG,Loop 2min,public/audio/sfx/ambient/fountain_water.mp3,,1
+286,Audio - Ambient,Wind Loop,MEDIUM,Not Started,MP3/OGG,Loop 2min,public/audio/sfx/ambient/wind_loop.mp3,,1
+287,Audio - Ambient,Park Birds,MEDIUM,Not Started,MP3/OGG,Loop 2min,public/audio/sfx/ambient/park_birds.mp3,,1
+288,Audio - Music,Main Menu Theme,HIGH,Not Started,MP3/OGG,2-3min loop,public/audio/music/menu_theme.mp3,,4-6
+289,Audio - Music,Gameplay Calm,HIGH,Not Started,MP3/OGG,2-3min loop,public/audio/music/gameplay_calm.mp3,,4-6
+290,Audio - Music,Gameplay Energetic,HIGH,Not Started,MP3/OGG,2-3min loop,public/audio/music/gameplay_energetic.mp3,,4-6
+291,Audio - Music,Gameplay Intense,HIGH,Not Started,MP3/OGG,2-3min loop,public/audio/music/gameplay_intense.mp3,,4-6
+292,Audio - Music,Victory Jingle,MEDIUM,Not Started,MP3/OGG,5-10s,public/audio/music/victory_jingle.mp3,,2
+293,Audio - Music,Defeat Theme,MEDIUM,Not Started,MP3/OGG,10-15s,public/audio/music/defeat_theme.mp3,,2
+294,Audio - Music,Level Up Stinger,MEDIUM,Not Started,MP3/OGG,5s,public/audio/music/levelup_stinger.mp3,,1
+295,Audio - Music,Cutscene Dramatic,LOW,Not Started,MP3/OGG,1-2min,public/audio/music/cutscene_dramatic.mp3,,3-5
+296,Audio - Music,Cutscene Cheerful,LOW,Not Started,MP3/OGG,1-2min,public/audio/music/cutscene_cheerful.mp3,,3-5
+297,Skybox,Daytime Skybox,CRITICAL,Not Started,PNG/JPG,2048x2048 x 6,public/textures/skybox/day_*.png,6 textures: px/nx/py/ny/pz/nz,2-3
+298,Skybox,Sunset Skybox,MEDIUM,Not Started,PNG/JPG,2048x2048 x 6,public/textures/skybox/sunset_*.png,6 textures,2-3
+299,Skybox,Night Skybox,MEDIUM,Not Started,PNG/JPG,2048x2048 x 6,public/textures/skybox/night_*.png,6 textures with stars,2-3
+300,Skybox,Sun Sprite,MEDIUM,Not Started,PNG,512x512,public/textures/skybox/sun.png,,0.5
+301,Skybox,Moon Sprite,MEDIUM,Not Started,PNG,512x512,public/textures/skybox/moon.png,,0.5
+302,Environment,Cloud Model 1,MEDIUM,Not Started,GLB,300-600 tris,public/models/environment/cloud_01.glb,,2-3
+303,Environment,Cloud Model 2,MEDIUM,Not Started,GLB,300-600 tris,public/models/environment/cloud_02.glb,,2-3
+304,Environment,Cloud Model 3,MEDIUM,Not Started,GLB,300-600 tris,public/models/environment/cloud_03.glb,,2-3
+305,World Zones,Sanctuary Zone Marker,CRITICAL,Not Started,PNG/GLB,Green glow effect,public/textures/zones/sanctuary_marker.png,,1
+306,World Zones,Hotspot Zone Marker,HIGH,Not Started,PNG,Yellow/orange effect,public/textures/zones/hotspot_marker.png,,1
+307,World Zones,Danger Zone Marker,MEDIUM,Not Started,PNG,Red warning effect,public/textures/zones/danger_marker.png,,1
+308,World Zones,Banking Beam Visual,CRITICAL,Not Started,PNG,Beam of light particle,public/textures/zones/banking_beam.png,,1
+309,Multiplayer UI,Nameplate Background,HIGH,Not Started,PNG,400x80,public/textures/ui/multiplayer/nameplate_bg.png,,0.5
+310,Multiplayer UI,Player Dot Minimap,HIGH,Not Started,PNG,32x32,public/textures/ui/multiplayer/player_dot.png,,0.25
+311,Multiplayer UI,Wanted Icon Minimap,HIGH,Not Started,PNG,32x32,public/textures/ui/multiplayer/wanted_icon.png,,0.5
+312,Multiplayer UI,Ally Icon Minimap,HIGH,Not Started,PNG,32x32,public/textures/ui/multiplayer/ally_icon.png,,0.5
+313,Multiplayer UI,Direction Arrow,MEDIUM,Not Started,PNG,64x64,public/textures/ui/multiplayer/direction_arrow.png,,0.5
+314,Branding,Game Logo,HIGH,Not Started,PNG,1024x512 transparent,public/textures/branding/logo.png,,2-3
+315,Branding,Loading Spinner,HIGH,Not Started,PNG/GIF,256x256,public/textures/branding/loading_spinner.png,Animated,1-2
+316,Branding,Progress Bar,HIGH,Not Started,PNG,600x40,public/textures/branding/progress_bar.png,,0.5
+317,Branding,Loading Background,MEDIUM,Not Started,JPG,1920x1080,public/textures/branding/loading_bg.jpg,,1-2
+318,Branding,Studio Logo,LOW,Not Started,PNG,512x512,public/textures/branding/studio_logo.png,,1
+319,Tutorial Icons,WASD Keys,MEDIUM,Not Started,PNG,128x128,public/textures/ui/tutorial/keys_wasd.png,,0.5
+320,Tutorial Icons,Space Bar Key,MEDIUM,Not Started,PNG,128x128,public/textures/ui/tutorial/key_space.png,,0.5
+321,Tutorial Icons,Ctrl Key,MEDIUM,Not Started,PNG,128x128,public/textures/ui/tutorial/key_ctrl.png,,0.5
+322,Tutorial Icons,Shift Key,MEDIUM,Not Started,PNG,128x128,public/textures/ui/tutorial/key_shift.png,,0.5
+323,Tutorial Icons,Mouse Click,MEDIUM,Not Started,PNG,128x128,public/textures/ui/tutorial/mouse_click.png,,0.5
+324,Tutorial Icons,Tab Key,MEDIUM,Not Started,PNG,128x128,public/textures/ui/tutorial/key_tab.png,,0.5
+325,Achievement Icons,First Flight,MEDIUM,Not Started,PNG,128x128,public/textures/ui/achievements/first_flight.png,,1
+326,Achievement Icons,First Hit,MEDIUM,Not Started,PNG,128x128,public/textures/ui/achievements/first_hit.png,,1
+327,Achievement Icons,First Banking,MEDIUM,Not Started,PNG,128x128,public/textures/ui/achievements/first_bank.png,,1
+328,Achievement Icons,100 Coins,MEDIUM,Not Started,PNG,128x128,public/textures/ui/achievements/coins_100.png,,1
+329,Achievement Icons,1000 Coins,MEDIUM,Not Started,PNG,128x128,public/textures/ui/achievements/coins_1000.png,,1
+330,Achievement Icons,Level 5,MEDIUM,Not Started,PNG,128x128,public/textures/ui/achievements/level_5.png,,1
+331,Achievement Icons,Level 10,MEDIUM,Not Started,PNG,128x128,public/textures/ui/achievements/level_10.png,,1
+332,Achievement Icons,Max Heat,MEDIUM,Not Started,PNG,128x128,public/textures/ui/achievements/max_heat.png,,1
+333,Achievement Icons,Wanted Survivor,MEDIUM,Not Started,PNG,128x128,public/textures/ui/achievements/wanted_survivor.png,,1
+334,Achievement Icons,Combo Master,MEDIUM,Not Started,PNG,128x128,public/textures/ui/achievements/combo_master.png,,1
+345,Cutscene Assets,Camera Path Markers,LOW,Not Started,Code Only,Invisible helpers,N/A,Configured in code,0
+346,Cutscene Assets,Dialogue Portrait,LOW,Not Started,PNG,256x256,public/textures/cutscenes/portrait_narrator.png,,1
+347,Cutscene Assets,Title Card Background,LOW,Not Started,PNG,1920x1080,public/textures/cutscenes/title_card_bg.png,,1
+348,Cutscene Assets,Transition Wipe,LOW,Not Started,PNG,1920x1080,public/textures/cutscenes/transition_wipe.png,,1
