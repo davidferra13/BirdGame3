@@ -360,7 +360,8 @@ export class MultiplayerManager {
         remotePlayer = this.getOrCreateRemotePlayer(playerState.id, playerState.username);
       }
       remotePlayer.updatePositionOnly(playerState);
-      remotePlayer.setLOD('mid');
+      // Use full mesh for mid-range players so they don't appear as placeholder markers.
+      remotePlayer.setLOD('near');
       this.visiblePlayerIds.add(playerState.id);
     }
 

@@ -341,11 +341,9 @@ export class WorldState {
       if (dist <= AOI_NEAR) {
         nearPlayers.push(other.toState());
       } else {
-        // Mid/far range: send reduced state every 2nd tick.
-        // This keeps all players visible in one global world.
-        if (this.currentTick % 2 === 0) {
-          midPlayers.push(other.toMidState());
-        }
+        // Mid/far range: always send reduced state.
+        // Sending every tick prevents visibility flicker on clients.
+        midPlayers.push(other.toMidState());
       }
     }
 
