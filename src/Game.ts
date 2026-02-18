@@ -456,22 +456,20 @@ export class Game {
       const rawUsername = (authState.username || '').trim();
       const safeUsername = rawUsername || ('Bird_' + Math.random().toString(36).substring(2, 6));
 
-      let playerId: string;
-      if (authState.isAuthenticated && authState.userId) {
-        playerId = authState.userId;
-      } else {
-        const guestBaseId = (authState.userId || '').trim().startsWith('guest_')
-          ? (authState.userId || '').trim()
-          : ('guest_' + Math.random().toString(36).substring(2, 11));
-
-        const GUEST_MP_SESSION_KEY = 'birdgame_guest_mp_session';
-        let guestSessionId = sessionStorage.getItem(GUEST_MP_SESSION_KEY);
-        if (!guestSessionId) {
-          guestSessionId = Math.random().toString(36).substring(2, 8);
-          sessionStorage.setItem(GUEST_MP_SESSION_KEY, guestSessionId);
-        }
-        playerId = `${guestBaseId}_${guestSessionId}`;
+      const MP_SESSION_KEY = 'birdgame_mp_session';
+      let sessionId = sessionStorage.getItem(MP_SESSION_KEY);
+      if (!sessionId) {
+        sessionId = Math.random().toString(36).substring(2, 8);
+        sessionStorage.setItem(MP_SESSION_KEY, sessionId);
       }
+
+      // Always use per-tab multiplayer IDs so multiple windows can appear simultaneously.
+      const baseId = authState.isAuthenticated && authState.userId
+        ? authState.userId
+        : ((authState.userId || '').trim().startsWith('guest_')
+          ? (authState.userId || '').trim()
+          : ('guest_' + Math.random().toString(36).substring(2, 11)));
+      const playerId = `${baseId}_${sessionId}`;
 
       await this.multiplayer.connect(playerId, safeUsername);
       console.log('Multiplayer initialized as:', safeUsername);
