@@ -323,8 +323,7 @@ export class WorldState {
   /**
    * AOI-filtered snapshot for a specific player.
    * Near players get full state every tick.
-   * Mid players get reduced state every 2nd tick.
-   * Far players are not included.
+   * Mid/far players get reduced state every 2nd tick.
    */
   getFilteredSnapshot(forPlayer: Player): FilteredWorldState {
     const nearPlayers = [];
@@ -341,13 +340,13 @@ export class WorldState {
 
       if (dist <= AOI_NEAR) {
         nearPlayers.push(other.toState());
-      } else if (dist <= AOI_MID) {
-        // Mid-range: send reduced state every 2nd tick
+      } else {
+        // Mid/far range: send reduced state every 2nd tick.
+        // This keeps all players visible in one global world.
         if (this.currentTick % 2 === 0) {
           midPlayers.push(other.toMidState());
         }
       }
-      // Far: not included at all
     }
 
     // Gather pending events for this player
