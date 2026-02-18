@@ -31,6 +31,7 @@ const STATS_LOG_INTERVAL_TICKS = 1200; // every 60s at 20 ticks/s
 /** Chat rate limit: 1 message per second per player */
 const CHAT_RATE_LIMIT_MS = 1000;
 const CHAT_MAX_LENGTH = 150;
+const WORLD_ID = (process.env.WORLD_ID || 'global-1').trim();
 
 export class GameServer {
   private wss: WebSocketServer;
@@ -231,12 +232,21 @@ export class GameServer {
   }
 
   private handlePlayerJoin(ws: AuthenticatedSocket, data: any): void {
-    const { playerId, username } = data;
+    const rawPlayerId = typeof data?.playerId === 'string' ? data.playerId.trim() : '';
+    const rawUsername = typeof data?.username === 'string' ? data.username.trim() : '';
+    const rawWorldId = typeof data?.worldId === 'string' ? data.worldId.trim() : '';
 
-    if (!playerId || !username) {
-      this.sendError(ws, 'Missing playerId or username');
+    if (!rawPlayerId) {
+      this.sendError(ws, 'Missing playerId');
       return;
     }
+    if (!rawWorldId || rawWorldId !== WORLD_ID) {
+      this.sendError(ws, 'World mismatch');
+      return;
+    }
+
+    let playerId = rawPlayerId;
+    const username = rawUsername || (playerId.startsWith('guest_') ? `Bird_${playerId.slice(-4)}` : 'Player');
 
     // Check player limit
     if (this.clients.size >= MAX_PLAYERS) {
@@ -247,8 +257,13 @@ export class GameServer {
 
     // Check if player already exists
     if (this.clients.has(playerId)) {
-      this.sendError(ws, 'Player already connected');
-      return;
+      // Guest collisions are common (multiple tabs/windows). Auto-dedupe instead of rejecting.
+      if (playerId.startsWith('guest_')) {
+        playerId = `${playerId}_${Math.random().toString(36).substring(2, 7)}`;
+      } else {
+        this.sendError(ws, 'Player already connected');
+        return;
+      }
     }
 
     // Create new player

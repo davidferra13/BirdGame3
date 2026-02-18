@@ -37,13 +37,23 @@ jobs:
             echo "Missing VITE_WS_URL secret. Set it to your production WebSocket server URL (wss://...)."
             exit 1
           fi
+          if [[ "$VITE_WS_URL" != wss://* ]]; then
+            echo "VITE_WS_URL must start with wss:// for production."
+            exit 1
+          fi
+          if [ -z "$VITE_WORLD_ID" ]; then
+            echo "Missing VITE_WORLD_ID secret. Set it to your canonical world ID (e.g. global-1)."
+            exit 1
+          fi
         env:
           VITE_WS_URL: ${{ secrets.VITE_WS_URL }}
+          VITE_WORLD_ID: ${{ secrets.VITE_WORLD_ID }}
 
       - name: Build
         run: pnpm run build
         env:
           VITE_WS_URL: ${{ secrets.VITE_WS_URL }}
+          VITE_WORLD_ID: ${{ secrets.VITE_WORLD_ID }}
 
       - name: Deploy to Netlify (Production)
         run: pnpm --package=netlify-cli dlx netlify deploy --dir=dist --prod --site=${{ secrets.NETLIFY_SITE_ID }}

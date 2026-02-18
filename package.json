@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "deploy:netlify": "pnpm run build && pnpm --package=netlify-cli dlx netlify deploy --dir=dist --prod --site=ea02ba27-b055-4495-884b-0e22ce04c94d",
+    "deploy:netlify": "node -e \"const u=(process.env.VITE_WS_URL||'').trim(); const w=(process.env.VITE_WORLD_ID||'').trim(); if(!u){console.error('Missing VITE_WS_URL'); process.exit(1);} if(!u.startsWith('wss://')){console.error('VITE_WS_URL must start with wss:// for production deploys'); process.exit(1);} if(!w){console.error('Missing VITE_WORLD_ID'); process.exit(1);} \" && pnpm run build && pnpm --package=netlify-cli dlx netlify deploy --dir=dist --prod --site=ea02ba27-b055-4495-884b-0e22ce04c94d",
     "preview": "vite preview",
     "server": "tsx server/index.ts",
     "server:dev": "tsx watch server/index.ts",

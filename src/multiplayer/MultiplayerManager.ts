@@ -145,6 +145,7 @@ export class MultiplayerManager {
 
   async connect(playerId: string, username: string): Promise<void> {
     const CONNECT_TIMEOUT = 5000;
+    const worldId = (import.meta.env.VITE_WORLD_ID as string | undefined)?.trim() || 'global-1';
 
     return new Promise((resolve, reject) => {
       const timeoutId = setTimeout(() => {
@@ -169,7 +170,7 @@ export class MultiplayerManager {
 
           this.send({
             type: 'join',
-            data: { playerId, username },
+            data: { playerId, username, worldId },
           });
         };
 
@@ -210,6 +211,10 @@ export class MultiplayerManager {
     switch (message.type) {
       case 'welcome':
         console.log('Welcomed to server:', message.data.playerId);
+        // Server may canonicalize player IDs (e.g. guest dedupe); always trust welcome ID.
+        if (message.data?.playerId) {
+          this.playerId = message.data.playerId;
+        }
         // Welcome uses legacy full snapshot for initial load
         if (message.data.worldState) {
           this.handleLegacyWorldState(message.data.worldState);

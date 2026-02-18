@@ -450,14 +450,31 @@ export class Game {
         },
       });
 
-      // Use authenticated user identity, or stable guest identity
+      // Use authenticated identity, and ensure guests get unique multiplayer IDs per tab.
       const { authStateManager } = await import('./services/AuthStateManager');
       const authState = authStateManager.getState();
-      const playerId = authState.userId || ('guest_' + Math.random().toString(36).substring(2, 11));
-      const username = authState.username;
+      const rawUsername = (authState.username || '').trim();
+      const safeUsername = rawUsername || ('Bird_' + Math.random().toString(36).substring(2, 6));
 
-      await this.multiplayer.connect(playerId, username);
-      console.log('✅ Multiplayer initialized as:', username);
+      let playerId: string;
+      if (authState.isAuthenticated && authState.userId) {
+        playerId = authState.userId;
+      } else {
+        const guestBaseId = (authState.userId || '').trim().startsWith('guest_')
+          ? (authState.userId || '').trim()
+          : ('guest_' + Math.random().toString(36).substring(2, 11));
+
+        const GUEST_MP_SESSION_KEY = 'birdgame_guest_mp_session';
+        let guestSessionId = sessionStorage.getItem(GUEST_MP_SESSION_KEY);
+        if (!guestSessionId) {
+          guestSessionId = Math.random().toString(36).substring(2, 8);
+          sessionStorage.setItem(GUEST_MP_SESSION_KEY, guestSessionId);
+        }
+        playerId = `${guestBaseId}_${guestSessionId}`;
+      }
+
+      await this.multiplayer.connect(playerId, safeUsername);
+      console.log('Multiplayer initialized as:', safeUsername);
     } catch (error) {
       console.error('Failed to initialize multiplayer:', error);
       this.multiplayer = null;
@@ -1806,23 +1823,20 @@ export class Game {
 
   /**
    * Resolve WebSocket URL for multiplayer.
-   * - Production requires VITE_WS_URL so clients connect to a real game server.
-   * - Development falls back to same-host WS port for local testing.
+   * - Requires explicit VITE_WS_URL so all clients target the same server/world.
    */
   private resolveMultiplayerUrl(): string | null {
     const envUrl = (import.meta.env.VITE_WS_URL as string | undefined)?.trim();
-    if (envUrl) return envUrl;
-
-    const host = window.location.hostname;
-    const isLocalHost = host === 'localhost' || host === '127.0.0.1';
-    if (!isLocalHost) {
-      console.warn('[multiplayer] VITE_WS_URL is not set for non-local host. Multiplayer disabled.');
-      return null;
+    if (envUrl) {
+      const isHttpsPage = window.location.protocol === 'https:';
+      if (isHttpsPage && !envUrl.startsWith('wss://')) {
+        console.warn('[multiplayer] HTTPS pages require VITE_WS_URL using wss://. Multiplayer disabled.');
+        return null;
+      }
+      return envUrl;
     }
-
-    const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
-    const port = (import.meta.env.VITE_WS_PORT as string | undefined)?.trim() || '3001';
-    return `${protocol}://${window.location.hostname}:${port}`;
+    console.warn('[multiplayer] VITE_WS_URL is not set. Multiplayer disabled to avoid split servers.');
+    return null;
   }
 
   private onResize = (): void => {

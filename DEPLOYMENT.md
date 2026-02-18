@@ -75,6 +75,7 @@ For production, enable email/password auth:
    SUPABASE_URL=https://your-project.supabase.co
    SUPABASE_SERVICE_KEY=your-service-key
    JWT_SECRET=your-random-secret
+   WORLD_ID=global-1
    WS_PORT=$PORT  # Railway provides PORT automatically
    NODE_ENV=production
    ```
@@ -148,6 +149,7 @@ For production, enable email/password auth:
    VITE_SUPABASE_URL=https://your-project.supabase.co
    VITE_SUPABASE_ANON_KEY=your-anon-key
    VITE_WS_URL=wss://your-server.railway.app
+   VITE_WORLD_ID=global-1
    ```
 
 3. **Build and Deploy**

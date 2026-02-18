@@ -45,6 +45,7 @@ A multiplayer arcade seagull flight game with server-authoritative gameplay.
    - `SUPABASE_SERVICE_KEY` - Your Supabase service role key (server only)
    - `WS_PORT` - WebSocket server port (default: 3001)
    - `VITE_WS_URL` - WebSocket URL for client (required in production, e.g. `wss://your-server.railway.app`)
+   - `WORLD_ID` / `VITE_WORLD_ID` - Must match exactly across server and client so all players join one world (e.g. `global-1`)
 
 4. Run database migrations:
    ```bash
@@ -88,8 +89,11 @@ Run the production server:
 pnpm run server
 ```
 
-If you deploy the client to Netlify via GitHub Actions, add a repository secret:
-- `VITE_WS_URL` = your production websocket endpoint (`wss://...`)
+If you deploy via GitHub Actions (`.github/workflows/netlify-deploy.yml`), add these repository secrets:
+- `NETLIFY_AUTH_TOKEN` = Netlify personal access token
+- `NETLIFY_SITE_ID` = your Netlify site ID
+- `VITE_WS_URL` = production websocket endpoint (`wss://...`)
+- `VITE_WORLD_ID` = canonical world ID (for example `global-1`)
 
 ## Project Structure
 
