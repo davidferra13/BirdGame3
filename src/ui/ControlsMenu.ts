@@ -1,4 +1,4 @@
-import { KeyBindings, DEFAULT_BINDINGS, BINDINGS_STORAGE_KEY } from '../core/InputManager';
+import { KeyBindings, DEFAULT_BINDINGS, BINDINGS_STORAGE_KEY, RESERVED_BINDING_CODES } from '../core/InputManager';
 
 interface ActionEntry {
   key: keyof KeyBindings;
@@ -24,7 +24,7 @@ const CATEGORIES: ActionCategory[] = [
     label: 'VERTICAL',
     actions: [
       { key: 'ascend', displayName: 'Ascend / Fly Up' },
-      { key: 'gentleDescend', displayName: 'Gentle Descent' },
+      { key: 'gentleDescend', displayName: 'Precise Descend (Slow)' },
       { key: 'fastDescend', displayName: 'Fast Descent' },
       { key: 'dive', displayName: 'Dive' },
     ],
@@ -33,6 +33,7 @@ const CATEGORIES: ActionCategory[] = [
     label: 'ACTIONS',
     actions: [
       { key: 'boost', displayName: 'Boost' },
+      { key: 'bomberMode', displayName: 'Bomber Mode Toggle' },
       { key: 'interact', displayName: 'Interact' },
       { key: 'ability', displayName: 'Ability' },
       { key: 'abilityCycle', displayName: 'Cycle Ability' },
@@ -172,7 +173,7 @@ export class ControlsMenu {
     // Subtitle hint
     const hint = document.createElement('div');
     hint.style.cssText = 'font-size:11px;color:#888;text-align:center;margin-bottom:20px;';
-    hint.textContent = 'Click a key to rebind. Press Escape to cancel.';
+    hint.textContent = 'Click a key to rebind. Press Escape to cancel. Ctrl/Meta keys are reserved.';
     panel.appendChild(hint);
 
     // Build category sections
@@ -286,6 +287,11 @@ export class ControlsMenu {
       return;
     }
 
+    if (RESERVED_BINDING_CODES.has(code)) {
+      this.showInvalidKeyFeedback();
+      return;
+    }
+
     // Detect conflict
     const conflict = this.detectConflict(code, action);
     if (conflict) {
@@ -310,6 +316,19 @@ export class ControlsMenu {
     }
 
     this.stopListening();
+  }
+
+  private showInvalidKeyFeedback(): void {
+    if (!this.listeningButton) return;
+    const button = this.listeningButton;
+    button.textContent = '[ RESERVED KEY ]';
+    button.style.background = 'rgba(220,80,80,0.35)';
+    setTimeout(() => {
+      if (this.listeningButton === button) {
+        button.textContent = '[ PRESS A KEY ]';
+        button.style.background = 'rgba(255,200,50,0.3)';
+      }
+    }, 700);
   }
 
   private stopListening(): void {
@@ -346,6 +365,7 @@ export class ControlsMenu {
   }
 
   private saveBinding(action: keyof KeyBindings, code: string): void {
+    if (RESERVED_BINDING_CODES.has(code)) return;
     (this.currentBindings as unknown as Record<string, string>)[action] = code;
 
     if (this.inputManager) {

@@ -127,7 +127,7 @@ export class MainMenu {
     const hint = document.createElement('div');
     hint.style.cssText =
       'position:absolute;bottom:30px;font-size:12px;color:rgba(255,255,255,0.5);text-align:center;';
-    hint.innerHTML = 'WASD — Fly &nbsp;|&nbsp; SPACE — Ascend &nbsp;|&nbsp; CTRL — Descend &nbsp;|&nbsp; CLICK — Poop &nbsp;|&nbsp; T — Boost &nbsp;|&nbsp; E — Bank';
+    hint.innerHTML = 'WASD — Fly &nbsp;|&nbsp; S — Brake &nbsp;|&nbsp; SPACE — Ascend &nbsp;|&nbsp; CTRL — Fast Descend &nbsp;|&nbsp; SHIFT — Slow Descend &nbsp;|&nbsp; CAPS — Bomber Mode';
     this.container.appendChild(hint);
 
     document.body.appendChild(this.container);

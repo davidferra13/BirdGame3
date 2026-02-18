@@ -22,9 +22,10 @@ import { assetLoader } from './systems/AssetLoader';
 import { ReferralService } from './sharing/ReferralService';
 import { FullscreenPrompt } from './ui/FullscreenPrompt';
 import { ControlsMenu } from './ui/ControlsMenu';
-import { authStateManager } from './services/AuthStateManager';
+import { authStateManager, type AuthState } from './services/AuthStateManager';
 import { AuthScreen } from './ui/AuthScreen';
 import { AccountPanel } from './ui/AccountPanel';
+import type { Profile } from './types/database';
 
 // CRITICAL FIX: Patch BufferGeometry to always return a valid boundingSphere
 const originalComputeBoundingSphere = THREE.BufferGeometry.prototype.computeBoundingSphere;
@@ -41,24 +42,21 @@ THREE.BufferGeometry.prototype.computeBoundingSphere = function() {
   }
 };
 
-// NUCLEAR FIX: Intercept Scene.add to prevent adding meshes without geometry
-const originalSceneAdd = THREE.Scene.prototype.add;
-THREE.Scene.prototype.add = function(...objects: THREE.Object3D[]) {
-  objects.forEach(obj => {
-    obj.traverse((child) => {
-      if (child instanceof THREE.Mesh) {
-        if (!child.geometry) {
-          console.error('❌ BLOCKING: Attempting to add mesh without geometry:', child.name || 'unnamed');
-          // Set a default geometry
-          child.geometry = new THREE.BoxGeometry(1, 1, 1);
-          child.geometry.computeBoundingSphere();
-          child.frustumCulled = false;
-        }
+// Safety net: only validate meshes in development, skip traversal overhead in production
+if (import.meta.env?.DEV) {
+  const originalSceneAdd = THREE.Scene.prototype.add;
+  THREE.Scene.prototype.add = function(...objects: THREE.Object3D[]) {
+    for (const obj of objects) {
+      if (obj instanceof THREE.Mesh && !obj.geometry) {
+        console.error('BLOCKING: Attempting to add mesh without geometry:', obj.name || 'unnamed');
+        obj.geometry = new THREE.BoxGeometry(1, 1, 1);
+        obj.geometry.computeBoundingSphere();
+        obj.frustumCulled = false;
       }
-    });
-  });
-  return originalSceneAdd.apply(this, objects);
-};
+    }
+    return originalSceneAdd.apply(this, objects);
+  };
+}
 
 console.log('✅ Three.js patches applied');
 
@@ -91,9 +89,13 @@ let menuCosmetics: CosmeticsSystem | null = null;
 let menuProgression: ProgressionSystem | null = null;
 let menuScore: ScoreSystem | null = null;
 let menuProfile: ProfilePage | null = null;
+const AUTH_INIT_TIMEOUT_MS = 8000;
 
 // Game state persistence keys
 const GAMESTATE_KEY = 'birdgame_gamestate';
+const AUTO_SAVE_INTERVAL_MS = 30000;
+const SUPABASE_SAVE_RETRIES = 2;
+const SUPABASE_SAVE_RETRY_DELAY_MS = 800;
 
 interface SavedGameState {
   stats: {
@@ -120,6 +122,26 @@ interface SavedGameState {
   bankedCoins: number;
 }
 
+const DEFAULT_STATS: SavedGameState['stats'] = {
+  totalNPCHits: 0,
+  totalTouristsHit: 0,
+  totalBusinessHit: 0,
+  totalPerformersHit: 0,
+  totalPoliceHit: 0,
+  totalChefsHit: 0,
+  totalTreemenHit: 0,
+  totalTimesGrounded: 0,
+  highestHeat: 0,
+  highestStreak: 0,
+  lifetimeCoinsEarned: 0,
+  totalDistanceFlown: 0,
+  totalBanks: 0,
+  largestBank: 0,
+};
+
+let queuedSupabaseSave: Promise<void> = Promise.resolve();
+let autoSaveIntervalId: number | null = null;
+
 function loadGameState(): SavedGameState | null {
   try {
     const saved = localStorage.getItem(GAMESTATE_KEY);
@@ -138,6 +160,138 @@ function saveGameState(state: SavedGameState): void {
   }
 }
 
+function mergeStats(localStats?: SavedGameState['stats']): SavedGameState['stats'] {
+  return {
+    totalNPCHits: Math.max(DEFAULT_STATS.totalNPCHits, localStats?.totalNPCHits ?? 0),
+    totalTouristsHit: Math.max(DEFAULT_STATS.totalTouristsHit, localStats?.totalTouristsHit ?? 0),
+    totalBusinessHit: Math.max(DEFAULT_STATS.totalBusinessHit, localStats?.totalBusinessHit ?? 0),
+    totalPerformersHit: Math.max(DEFAULT_STATS.totalPerformersHit, localStats?.totalPerformersHit ?? 0),
+    totalPoliceHit: Math.max(DEFAULT_STATS.totalPoliceHit, localStats?.totalPoliceHit ?? 0),
+    totalChefsHit: Math.max(DEFAULT_STATS.totalChefsHit, localStats?.totalChefsHit ?? 0),
+    totalTreemenHit: Math.max(DEFAULT_STATS.totalTreemenHit, localStats?.totalTreemenHit ?? 0),
+    totalTimesGrounded: Math.max(DEFAULT_STATS.totalTimesGrounded, localStats?.totalTimesGrounded ?? 0),
+    highestHeat: Math.max(DEFAULT_STATS.highestHeat, localStats?.highestHeat ?? 0),
+    highestStreak: Math.max(DEFAULT_STATS.highestStreak, localStats?.highestStreak ?? 0),
+    lifetimeCoinsEarned: Math.max(DEFAULT_STATS.lifetimeCoinsEarned, localStats?.lifetimeCoinsEarned ?? 0),
+    totalDistanceFlown: Math.max(DEFAULT_STATS.totalDistanceFlown, localStats?.totalDistanceFlown ?? 0),
+    totalBanks: Math.max(DEFAULT_STATS.totalBanks, localStats?.totalBanks ?? 0),
+    largestBank: Math.max(DEFAULT_STATS.largestBank, localStats?.largestBank ?? 0),
+  };
+}
+
+function getMergedStateForAuthenticatedUser(profile: Profile, localState: SavedGameState | null): SavedGameState {
+  return {
+    stats: mergeStats(localState?.stats),
+    level: Math.max(profile.level ?? 1, localState?.level ?? 1),
+    xp: Math.max(profile.xp ?? 0, localState?.xp ?? 0),
+    feathers: Math.max(profile.feathers ?? 0, localState?.feathers ?? 0),
+    worms: Math.max(profile.worms ?? 0, localState?.worms ?? 0),
+    goldenEggs: Math.max(profile.golden_eggs ?? 0, localState?.goldenEggs ?? 0),
+    bankedCoins: Math.max(profile.coins ?? 0, localState?.bankedCoins ?? 0),
+  };
+}
+
+function applySavedStateToSystems(
+  progression: ProgressionSystem,
+  score: ScoreSystem,
+  state: SavedGameState,
+): void {
+  progression.level = state.level;
+  progression.xp = state.xp;
+  progression.feathers = state.feathers;
+  progression.worms = state.worms ?? 0;
+  progression.goldenEggs = state.goldenEggs ?? 0;
+  progression.stats = { ...state.stats };
+  score.bankedCoins = state.bankedCoins;
+}
+
+function shouldSyncProfileFromState(profile: Profile, state: SavedGameState): boolean {
+  return (
+    (profile.level ?? 1) !== state.level ||
+    (profile.xp ?? 0) !== state.xp ||
+    (profile.coins ?? 0) !== state.bankedCoins ||
+    (profile.feathers ?? 0) !== state.feathers ||
+    (profile.worms ?? 0) !== state.worms ||
+    (profile.golden_eggs ?? 0) !== state.goldenEggs
+  );
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function queueSupabaseStateSave(userId: string, state: SavedGameState): Promise<void> {
+  const runSave = async () => {
+    const { supabase } = await import('./services/SupabaseClient');
+    let lastError: unknown = null;
+
+    for (let attempt = 0; attempt <= SUPABASE_SAVE_RETRIES; attempt++) {
+      const { error } = await supabase.from('profiles').update({
+        level: state.level,
+        xp: state.xp,
+        coins: state.bankedCoins,
+        feathers: state.feathers,
+        worms: state.worms,
+        golden_eggs: state.goldenEggs,
+      }).eq('id', userId);
+
+      if (!error) return;
+      lastError = error;
+
+      if (attempt < SUPABASE_SAVE_RETRIES) {
+        await sleep(SUPABASE_SAVE_RETRY_DELAY_MS * (attempt + 1));
+      }
+    }
+
+    throw lastError;
+  };
+
+  queuedSupabaseSave = queuedSupabaseSave
+    .catch(() => undefined)
+    .then(runSave)
+    .catch((error) => {
+      console.warn('Failed to sync state to Supabase:', error);
+    });
+
+  return queuedSupabaseSave;
+}
+
+function getCurrentStateFromGame(): SavedGameState | null {
+  if (!game) return null;
+
+  const scoreSystem = (game as any).scoreSystem as ScoreSystem;
+  return {
+    stats: { ...game.progression.stats },
+    level: game.progression.level,
+    xp: game.progression.xp,
+    feathers: game.progression.feathers,
+    worms: game.progression.worms,
+    goldenEggs: game.progression.goldenEggs,
+    bankedCoins: scoreSystem.bankedCoins,
+  };
+}
+
+function trySendBeaconSave(state: SavedGameState): void {
+  const authState = authStateManager.getState();
+  const beaconUrl = import.meta.env.VITE_SAVE_BEACON_URL as string | undefined;
+  if (!beaconUrl || !authState.isAuthenticated || !authState.userId || !navigator.sendBeacon) return;
+
+  try {
+    const payload = JSON.stringify({
+      userId: authState.userId,
+      level: state.level,
+      xp: state.xp,
+      coins: state.bankedCoins,
+      feathers: state.feathers,
+      worms: state.worms,
+      golden_eggs: state.goldenEggs,
+    });
+    navigator.sendBeacon(beaconUrl, new Blob([payload], { type: 'application/json' }));
+  } catch (error) {
+    console.warn('Failed to queue beacon save:', error);
+  }
+}
+
 /** Build standalone shop systems from persisted data for menu use */
 function initMenuShop(): void {
   menuCosmetics = new CosmeticsSystem();
@@ -147,24 +301,23 @@ function initMenuShop(): void {
   // Load persisted data into standalone systems
   const authState = authStateManager.getState();
   if (authState.isAuthenticated && authState.profile) {
-    // Authenticated: load from Supabase profile
-    menuProgression.level = authState.profile.level;
-    menuProgression.xp = authState.profile.xp;
-    menuProgression.feathers = authState.profile.feathers;
-    menuProgression.worms = authState.profile.worms ?? 0;
-    menuProgression.goldenEggs = authState.profile.golden_eggs ?? 0;
-    menuScore.bankedCoins = authState.profile.coins;
+    // Authenticated: merge local fallback and Supabase profile, keeping best values.
+    const localState = loadGameState();
+    const mergedState = getMergedStateForAuthenticatedUser(authState.profile, localState);
+    applySavedStateToSystems(menuProgression, menuScore, mergedState);
+    saveGameState(mergedState);
+
+    if (authState.userId && shouldSyncProfileFromState(authState.profile, mergedState)) {
+      void queueSupabaseStateSave(authState.userId, mergedState);
+    }
   } else {
     // Guest: load from localStorage
     const savedState = loadGameState();
     if (savedState) {
-      menuProgression.level = savedState.level;
-      menuProgression.xp = savedState.xp;
-      menuProgression.feathers = savedState.feathers;
-      menuProgression.worms = savedState.worms ?? 0;
-      menuProgression.goldenEggs = savedState.goldenEggs ?? 0;
-      menuProgression.stats = { ...savedState.stats };
-      menuScore.bankedCoins = savedState.bankedCoins;
+      applySavedStateToSystems(menuProgression, menuScore, {
+        ...savedState,
+        stats: mergeStats(savedState.stats),
+      });
     } else {
       menuScore.bankedCoins = loadGuestCoins();
       menuProgression.feathers = loadGuestFeathers();
@@ -302,24 +455,25 @@ async function startGame(): Promise<void> {
     // Load persisted game state into game systems
     const authState = authStateManager.getState();
     if (authState.isAuthenticated && authState.profile) {
-      // Authenticated: load from Supabase profile
-      game.progression.level = authState.profile.level;
-      game.progression.xp = authState.profile.xp;
-      game.progression.feathers = authState.profile.feathers;
-      game.progression.worms = authState.profile.worms ?? 0;
-      game.progression.goldenEggs = authState.profile.golden_eggs ?? 0;
-      (game as any).scoreSystem.bankedCoins = authState.profile.coins;
+      // Authenticated: merge local fallback and Supabase profile, keeping best values.
+      const localState = loadGameState();
+      const mergedState = getMergedStateForAuthenticatedUser(authState.profile, localState);
+      const scoreSystem = (game as any).scoreSystem as ScoreSystem;
+      applySavedStateToSystems(game.progression, scoreSystem, mergedState);
+      saveGameState(mergedState);
+
+      if (authState.userId && shouldSyncProfileFromState(authState.profile, mergedState)) {
+        await queueSupabaseStateSave(authState.userId, mergedState);
+      }
     } else {
       // Guest: load from localStorage
       const savedState = loadGameState();
       if (savedState) {
-        game.progression.level = savedState.level;
-        game.progression.xp = savedState.xp;
-        game.progression.feathers = savedState.feathers;
-        game.progression.worms = savedState.worms ?? 0;
-        game.progression.goldenEggs = savedState.goldenEggs ?? 0;
-        game.progression.stats = { ...savedState.stats };
-        (game as any).scoreSystem.bankedCoins = savedState.bankedCoins;
+        const scoreSystem = (game as any).scoreSystem as ScoreSystem;
+        applySavedStateToSystems(game.progression, scoreSystem, {
+          ...savedState,
+          stats: mergeStats(savedState.stats),
+        });
       }
 
       // Load owned inventory into game's cosmetics system (guests only)
@@ -395,9 +549,17 @@ async function initialize(): Promise<void> {
       notificationManager.warning(`Failed to load some assets. Game may not work properly.`, 8000);
     });
 
-    // Initialize authentication state
+    // Initialize authentication state with startup timeout safeguard
     loadingScreen.updateProgress(1, 4, 'Checking authentication...');
-    const initialAuth = await authStateManager.initialize();
+    const initialAuth = await Promise.race([
+      authStateManager.initialize(),
+      new Promise<AuthState>((resolve) => {
+        setTimeout(() => {
+          console.warn('Auth startup timed out in main.ts, continuing with guest state');
+          resolve(authStateManager.getState());
+        }, AUTH_INIT_TIMEOUT_MS);
+      }),
+    ]);
 
     // Initialize UI components
     loadingScreen.updateProgress(2, 4, 'Initializing UI...');
@@ -519,7 +681,7 @@ async function initialize(): Promise<void> {
         if (confirm('Are you sure you want to quit?')) {
           // Save game state before quitting
           if (game) {
-            saveCurrentGameState();
+            void saveCurrentGameState({ reason: 'quit' });
           }
           // In an iframe (game platform) or when window.close() fails, reload to main menu
           if (window.self !== window.top) {
@@ -596,7 +758,7 @@ async function initialize(): Promise<void> {
     errorBoundary.setReturnToMenuCallback(() => {
       // Save state before cleanup
       if (game) {
-        saveCurrentGameState();
+        void saveCurrentGameState({ reason: 'error-boundary' });
       }
       if (loop) {
         loop.stop();
@@ -610,12 +772,35 @@ async function initialize(): Promise<void> {
       }
     });
 
+    // Save state when tab is backgrounded/navigation begins
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden' && game) {
+        void saveCurrentGameState({ reason: 'visibility-hidden' });
+      }
+    });
+
+    window.addEventListener('pagehide', () => {
+      if (game) {
+        void saveCurrentGameState({ reason: 'pagehide', useBeacon: true });
+      }
+    });
+
     // Save game state before page unload
     window.addEventListener('beforeunload', () => {
       if (game) {
-        saveCurrentGameState();
+        void saveCurrentGameState({ reason: 'beforeunload', useBeacon: true });
       }
     });
+
+    // Periodic auto-save safety net
+    if (autoSaveIntervalId !== null) {
+      clearInterval(autoSaveIntervalId);
+    }
+    autoSaveIntervalId = window.setInterval(() => {
+      if (game) {
+        void saveCurrentGameState({ reason: 'autosave' });
+      }
+    }, AUTO_SAVE_INTERVAL_MS);
 
     // Wire share prompt callback (Game.ts calls this to open share panel)
     (window as any).__openSharePanel = (text: string) => {
@@ -653,47 +838,43 @@ async function initialize(): Promise<void> {
 function showAuthScreen(): void {
   if (!authScreen) return;
   authScreen.setOnComplete((state) => {
+    console.log('[MAIN] Auth complete, state:', state);
+    console.log('[MAIN] Updating auth display');
     mainMenu?.updateAuthDisplay(state);
+
     // Reinitialize menu shop and profile with new auth state (loads from Supabase if logged in)
+    console.log('[MAIN] Reinitializing menu shop');
     initMenuShop();
+
+    console.log('[MAIN] Reinitializing menu profile');
     initMenuProfile();
+
+    console.log('[MAIN] Showing main menu');
     mainMenu?.show();
+    console.log('[MAIN] Auth flow complete!');
   });
   authScreen.show();
 }
 
 /** Save current game state to localStorage + Supabase for authenticated users */
-function saveCurrentGameState(): void {
-  if (!game) return;
-  const scoreSystem = (game as any).scoreSystem as ScoreSystem;
-  const state: SavedGameState = {
-    stats: { ...game.progression.stats },
-    level: game.progression.level,
-    xp: game.progression.xp,
-    feathers: game.progression.feathers,
-    worms: game.progression.worms,
-    goldenEggs: game.progression.goldenEggs,
-    bankedCoins: scoreSystem.bankedCoins,
-  };
+async function saveCurrentGameState(options: { reason?: string; useBeacon?: boolean } = {}): Promise<void> {
+  const state = getCurrentStateFromGame();
+  if (!state) return;
 
   // Always save to localStorage (fast, reliable fallback)
-  saveGameState(state);
+  saveGameState({
+    ...state,
+    stats: mergeStats(state.stats),
+  });
+
+  if (options.useBeacon) {
+    trySendBeaconSave(state);
+  }
 
   // Additionally sync to Supabase for authenticated users
   const authState = authStateManager.getState();
   if (authState.isAuthenticated && authState.userId) {
-    import('./services/SupabaseClient').then(({ supabase }) => {
-      supabase.from('profiles').update({
-        level: state.level,
-        xp: state.xp,
-        coins: state.bankedCoins,
-        feathers: state.feathers,
-        worms: state.worms,
-        golden_eggs: state.goldenEggs,
-      }).eq('id', authState.userId).then(({ error }) => {
-        if (error) console.warn('Failed to sync state to Supabase:', error);
-      });
-    }).catch(e => console.warn('Supabase sync error:', e));
+    await queueSupabaseStateSave(authState.userId, state);
   }
 }
 
@@ -709,6 +890,10 @@ initialize();
 // to prevent multiple render loops stacking up during development
 if (import.meta.hot) {
   import.meta.hot.dispose(() => {
+    if (autoSaveIntervalId !== null) {
+      clearInterval(autoSaveIntervalId);
+      autoSaveIntervalId = null;
+    }
     if (loop) {
       loop.stop();
       loop = null;

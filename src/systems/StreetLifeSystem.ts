@@ -3,6 +3,9 @@ import { STREET_LIFE } from '../utils/Constants';
 import { createToonMaterial } from '../rendering/ToonUtils';
 import type { Poop } from '../entities/Poop';
 
+// Reusable scratch vector — allocated once, reused every frame
+const _dir = new THREE.Vector3();
+
 // ---- Pigeon Flocks ----
 
 interface PigeonFlock {
@@ -520,18 +523,18 @@ export class StreetLifeSystem {
         }
       } else if (animal.state === 'walking') {
         // Walk toward target
-        const toDest = new THREE.Vector3().subVectors(animal.walkTarget, animal.position);
-        const dist = toDest.length();
+        _dir.subVectors(animal.walkTarget, animal.position);
+        const dist = _dir.length();
 
         if (dist < 1) {
           // Reached target, idle for a bit
           animal.state = 'idle';
           animal.stateTimer = 1 + Math.random() * 3;
         } else {
-          toDest.normalize();
-          animal.position.addScaledVector(toDest, animal.speed * dt);
+          _dir.normalize();
+          animal.position.addScaledVector(_dir, animal.speed * dt);
           animal.mesh.position.copy(animal.position);
-          animal.mesh.rotation.y = Math.atan2(toDest.x, toDest.z);
+          animal.mesh.rotation.y = Math.atan2(_dir.x, _dir.z);
         }
       } else {
         // Idle

@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "deploy:netlify": "pnpm run build && pnpm --package=netlify-cli dlx netlify deploy --dir=dist --prod --site=ea02ba27-b055-4495-884b-0e22ce04c94d",
     "preview": "vite preview",
     "server": "tsx server/index.ts",
     "server:dev": "tsx watch server/index.ts",

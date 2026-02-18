@@ -144,5 +144,6 @@ export interface ActivePoop {
   ownerId: string;
   position: Vector3;
   velocity: Vector3;
+  spawnAltitude: number;
   spawnTime: number;
 }

@@ -22,7 +22,7 @@ export class ThirdPersonCamera {
   private shakeTimer = 0;
   private shakeOffset = new THREE.Vector3();
 
-  // Bombing run mode (brake to aim)
+  // Bombing run mode (dedicated toggle)
   private bombingBlend = 0;
 
   // Vertigo shot (dolly zoom on boost)
@@ -49,7 +49,7 @@ export class ThirdPersonCamera {
       CAMERA.SPEED_FOV_MIN,
       aspect,
       1,
-      5000,
+      1400,
     );
   }
 
@@ -137,13 +137,18 @@ export class ThirdPersonCamera {
     if (this.dropAssistTimer > 0) this.dropAssistTimer -= dt;
     const dropBlend = Math.max(0, this.dropAssistTimer / CAMERA.DROP_ASSIST_DURATION);
 
-    // Bombing run mode: ramp blend when braking in flight
-    const wantsBombing = ctrl.isBraking && !ctrl.isGrounded && !ctrl.isDiving;
+    // Bombing run mode: ramp blend when bomber mode is active in flight
+    const wantsBombing = ctrl.isBomberMode && !ctrl.isGrounded && !ctrl.isDiving;
     if (wantsBombing) {
       this.bombingBlend = moveToward(this.bombingBlend, 1, dt * 2.0); // ~0.5s ramp up
     } else {
       this.bombingBlend = moveToward(this.bombingBlend, 0, dt * 3.0); // ~0.33s ramp down
     }
+    const bombingSpeedNorm = clamp(
+      remap(ctrl.forwardSpeed, FLIGHT.BASE_SPEED, FLIGHT.DIVE_BOMB_SPEED, 0, 1),
+      0,
+      1,
+    );
 
     // Choose target offsets based on state: driving > grounded > diving > bombing > normal
     let targetOffsetBehind: number;
@@ -167,8 +172,9 @@ export class ThirdPersonCamera {
       targetOffsetAbove = CAMERA.OFFSET_ABOVE;
     }
 
-    // Smooth offset transitions (prevents camera snap on dive entry/exit)
-    const offsetAlpha = 1 - Math.exp(-3.0 * dt);
+    // Smooth offset transitions (with extra catch-up at high-speed bombing)
+    const offsetLerpSpeed = 3.0 + this.bombingBlend * (2.0 + bombingSpeedNorm * 8.0);
+    const offsetAlpha = 1 - Math.exp(-offsetLerpSpeed * dt);
     this.smoothOffsetBehind += (targetOffsetBehind - this.smoothOffsetBehind) * offsetAlpha;
     this.smoothOffsetAbove += (targetOffsetAbove - this.smoothOffsetAbove) * offsetAlpha;
 
@@ -203,7 +209,8 @@ export class ThirdPersonCamera {
     // Reduce lookahead during bombing mode so camera looks closer to directly below
     const effectiveLookahead = this.drivingMode
       ? CAMERA.DRIVING_LOOKAHEAD
-      : CAMERA.LOOKAHEAD_DISTANCE * (1 - this.bombingBlend * (1 - CAMERA.BOMBING_LOOKAHEAD_SCALE));
+      : CAMERA.LOOKAHEAD_DISTANCE * (1 - this.bombingBlend * (1 - CAMERA.BOMBING_LOOKAHEAD_SCALE))
+        + this.bombingBlend * bombingSpeedNorm * 8;
     const lookYawQuat = new THREE.Quaternion();
     lookYawQuat.setFromAxisAngle(new THREE.Vector3(0, 1, 0), effectiveYaw);
     const lookForward = new THREE.Vector3(0, 0, -1).applyQuaternion(lookYawQuat);
@@ -224,11 +231,12 @@ export class ThirdPersonCamera {
       this.currentLookTarget.copy(lookTarget);
       this.initialized = true;
     } else {
-      // Smoother lerp when grounded or bombing (steadier camera for aiming)
+      // Bomber mode now scales follow speed with movement speed so camera won't lag behind.
       const baseLerpSpeed = ctrl.isGrounded ? CAMERA.GROUND_LERP_SPEED : CAMERA.POSITION_LERP_SPEED;
       const baseLookLerp = ctrl.isGrounded ? CAMERA.GROUND_LERP_SPEED : CAMERA.LOOKAT_LERP_SPEED;
-      const lerpSpeed = baseLerpSpeed + (CAMERA.BOMBING_LERP_SPEED - baseLerpSpeed) * this.bombingBlend;
-      const lookLerp = baseLookLerp + (CAMERA.BOMBING_LERP_SPEED - baseLookLerp) * this.bombingBlend;
+      const bombingCatchup = this.bombingBlend * (2.5 + bombingSpeedNorm * 10.0);
+      const lerpSpeed = Math.max(baseLerpSpeed, CAMERA.BOMBING_LERP_SPEED + bombingCatchup);
+      const lookLerp = Math.max(baseLookLerp, CAMERA.BOMBING_LERP_SPEED + bombingCatchup * 1.15);
 
       const posAlpha = 1 - Math.exp(-lerpSpeed * dt);
       this.camera.position.lerp(idealPosition, posAlpha);

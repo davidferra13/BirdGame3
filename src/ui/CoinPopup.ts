@@ -27,9 +27,13 @@ export class CoinPopupManager {
   /** Pending merge: accumulates hits within POPUP_MERGE_WINDOW */
   private pendingPoints = 0;
   private pendingMultiplier = 0;
-  private pendingPos: THREE.Vector3 | null = null;
+  private pendingPos = new THREE.Vector3();
+  private pendingHasPos = false;
   private pendingTimer = 0;
   private pendingLabel?: string;
+
+  // Reusable vector for screen projection (avoids per-frame allocation)
+  private _projVec = new THREE.Vector3();
 
   constructor() {
     this.container = document.getElementById('hud')!;
@@ -44,7 +48,7 @@ export class CoinPopupManager {
     if (this.pendingTimer > 0) {
       this.pendingPoints += points;
       this.pendingMultiplier = Math.max(this.pendingMultiplier, multiplier);
-      this.pendingPos = worldPos.clone();
+      this.pendingPos.copy(worldPos);
       this.pendingPos.y += 2;
       if (label) this.pendingLabel = label;
       return;
@@ -53,18 +57,18 @@ export class CoinPopupManager {
     // Start new merge window
     this.pendingPoints = points;
     this.pendingMultiplier = multiplier;
-    this.pendingPos = worldPos.clone();
+    this.pendingPos.copy(worldPos);
     this.pendingPos.y += 2;
+    this.pendingHasPos = true;
     this.pendingLabel = label;
     this.pendingTimer = SCORE.POPUP_MERGE_WINDOW;
   }
 
   private flushPending(): void {
-    if (!this.pendingPos || this.pendingPoints <= 0) return;
+    if (!this.pendingHasPos || this.pendingPoints <= 0) return;
 
     const points = this.pendingPoints;
     const multiplier = this.pendingMultiplier;
-    const pos = this.pendingPos;
     const label = this.pendingLabel;
 
     const el = document.createElement('div');
@@ -79,14 +83,13 @@ export class CoinPopupManager {
     }
     el.innerHTML = text;
 
-    // Scale bounce: start at 0.8, handled in update
     el.style.transform = 'translate(-50%, -50%) scale(0.8)';
 
     this.container.appendChild(el);
 
     this.popups.push({
       element: el,
-      worldPos: pos.clone(),
+      worldPos: this.pendingPos.clone(),
       age: 0,
       lifetime: label ? 1.4 : 1.0,
       totalPoints: points,
@@ -97,7 +100,7 @@ export class CoinPopupManager {
     // Reset pending
     this.pendingPoints = 0;
     this.pendingMultiplier = 0;
-    this.pendingPos = null;
+    this.pendingHasPos = false;
     this.pendingLabel = undefined;
   }
 
@@ -112,7 +115,8 @@ export class CoinPopupManager {
 
     if (!this.camera) return;
 
-    for (let i = this.popups.length - 1; i >= 0; i--) {
+    let i = this.popups.length;
+    while (i-- > 0) {
       const popup = this.popups[i];
       popup.age += dt;
 
@@ -121,17 +125,20 @@ export class CoinPopupManager {
 
       if (popup.age >= popup.lifetime) {
         popup.element.remove();
-        this.popups.splice(i, 1);
+        // Swap-and-pop instead of splice
+        const last = this.popups.length - 1;
+        if (i !== last) this.popups[i] = this.popups[last];
+        this.popups.length = last;
         continue;
       }
 
-      // Project world position to screen
-      const screenPos = popup.worldPos.clone().project(this.camera);
-      const x = (screenPos.x * 0.5 + 0.5) * window.innerWidth;
-      const y = (-screenPos.y * 0.5 + 0.5) * window.innerHeight;
+      // Project world position to screen (reuse vector)
+      this._projVec.copy(popup.worldPos).project(this.camera);
+      const x = (this._projVec.x * 0.5 + 0.5) * window.innerWidth;
+      const y = (-this._projVec.y * 0.5 + 0.5) * window.innerHeight;
 
       // Behind camera check
-      if (screenPos.z > 1) {
+      if (this._projVec.z > 1) {
         popup.element.style.display = 'none';
         continue;
       }
@@ -144,9 +151,9 @@ export class CoinPopupManager {
       const t = popup.age / popup.lifetime;
       let scale: number;
       if (t < 0.1) {
-        scale = 0.8 + (t / 0.1) * 0.4; // 0.8 → 1.2
+        scale = 0.8 + (t / 0.1) * 0.4;
       } else if (t < 0.25) {
-        scale = 1.2 - ((t - 0.1) / 0.15) * 0.2; // 1.2 → 1.0
+        scale = 1.2 - ((t - 0.1) / 0.15) * 0.2;
       } else {
         scale = 1.0;
       }

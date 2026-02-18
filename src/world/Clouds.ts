@@ -9,6 +9,7 @@ export class CloudSystem {
   readonly group = new THREE.Group();
   private clouds: THREE.Group[] = [];
   private speeds: number[] = [];
+  private static readonly VISUAL_DISTANCE_SQ = 700 * 700;
 
   constructor() {
     this.createClouds();
@@ -102,13 +103,22 @@ export class CloudSystem {
     return texture;
   }
 
-  update(dt: number): void {
+  update(dt: number, playerPos?: THREE.Vector3): void {
     for (let i = 0; i < this.clouds.length; i++) {
-      this.clouds[i].position.x += this.speeds[i] * dt;
+      const cloud = this.clouds[i];
+      cloud.position.x += this.speeds[i] * dt;
 
-      if (this.clouds[i].position.x > 1300) {
-        this.clouds[i].position.x = -1300;
-        this.clouds[i].position.z = (Math.random() - 0.5) * 2400;
+      if (cloud.position.x > 1300) {
+        cloud.position.x = -1300;
+        cloud.position.z = (Math.random() - 0.5) * 2400;
+      }
+
+      if (playerPos) {
+        const dx = cloud.position.x - playerPos.x;
+        const dz = cloud.position.z - playerPos.z;
+        cloud.visible = (dx * dx + dz * dz) <= CloudSystem.VISUAL_DISTANCE_SQ;
+      } else {
+        cloud.visible = true;
       }
     }
   }

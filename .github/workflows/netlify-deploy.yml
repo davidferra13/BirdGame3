@@ -1,0 +1,51 @@
+name: Netlify Deploy
+
+on:
+  push:
+    branches:
+      - master
+      - main
+
+concurrency:
+  group: netlify-production
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate Multiplayer WebSocket URL
+        run: |
+          if [ -z "$VITE_WS_URL" ]; then
+            echo "Missing VITE_WS_URL secret. Set it to your production WebSocket server URL (wss://...)."
+            exit 1
+          fi
+        env:
+          VITE_WS_URL: ${{ secrets.VITE_WS_URL }}
+
+      - name: Build
+        run: pnpm run build
+        env:
+          VITE_WS_URL: ${{ secrets.VITE_WS_URL }}
+
+      - name: Deploy to Netlify (Production)
+        run: pnpm --package=netlify-cli dlx netlify deploy --dir=dist --prod --site=${{ secrets.NETLIFY_SITE_ID }}
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}

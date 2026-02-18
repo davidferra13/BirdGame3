@@ -460,7 +460,10 @@ export class NPCManager {
 
       if (npc.shouldDespawn || distSq > DESPAWN_DISTANCE_SQ) {
         this.scene.remove(npc.mesh);
-        this.npcs.splice(i, 1);
+        // Swap-and-pop: O(1) removal instead of O(n) splice
+        const last = this.npcs.length - 1;
+        if (i !== last) this.npcs[i] = this.npcs[last];
+        this.npcs.length = last;
       } else if (distSq > UPDATE_DISTANCE_SQ) {
         npc.mesh.visible = false;
       } else if (distSq > VISIBLE_DISTANCE_SQ) {

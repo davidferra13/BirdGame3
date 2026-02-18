@@ -71,7 +71,8 @@ export class VFXSystem {
   }
 
   update(dt: number): void {
-    for (let i = this.particles.length - 1; i >= 0; i--) {
+    let i = this.particles.length;
+    while (i-- > 0) {
       const p = this.particles[i];
       p.life -= dt;
 
@@ -80,7 +81,10 @@ export class VFXSystem {
         if (p.mesh instanceof THREE.Mesh) {
           this.releaseMesh(p.mesh);
         }
-        this.particles.splice(i, 1);
+        // Swap-and-pop: O(1) removal instead of O(n) splice
+        const last = this.particles.length - 1;
+        if (i !== last) this.particles[i] = this.particles[last];
+        this.particles.length = last;
         continue;
       }
 

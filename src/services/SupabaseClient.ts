@@ -13,19 +13,36 @@ if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
 }
 
 // Create singleton Supabase client
+// NOTE: We provide a no-op lock to prevent deadlocks. The default navigator.locks
+// can get permanently held when Promise.race abandons a long-running getSession() call,
+// which then blocks all subsequent auth operations (signIn, signUp, etc.) forever.
 export const supabase: SupabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: {
     persistSession: true,
     autoRefreshToken: true,
+    detectSessionInUrl: true,
+    flowType: 'pkce',
+    lock: async (name: string, acquireTimeout: number, fn: () => Promise<any>) => {
+      return await fn();
+    },
   },
 });
 
 /**
- * Get the current authenticated user
+ * Get the current authenticated user (with timeout to prevent deadlocks)
  */
 export async function getCurrentUser(): Promise<User | null> {
-  const { data: { user } } = await supabase.auth.getUser();
-  return user;
+  try {
+    const result = await Promise.race([
+      supabase.auth.getUser(),
+      new Promise<{ data: { user: null } }>((resolve) =>
+        setTimeout(() => resolve({ data: { user: null } }), 3000)
+      ),
+    ]);
+    return result.data.user;
+  } catch {
+    return null;
+  }
 }
 
 /**

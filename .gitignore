@@ -36,3 +36,6 @@ pnpm-debug.log*
 
 # Local overrides
 *.local
+
+# Local Netlify folder
+.netlify

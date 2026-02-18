@@ -24,7 +24,7 @@ export class TutorialSystem {
 
     // 5 overlay prompts per spec
     this.steps = [
-      { text: 'WASD / Mouse â€” Move and Look', condition: 'move', dismissed: false },
+      { text: 'W/A/S/D + Mouse — Forward, Brake, Turn, Look', condition: 'move', dismissed: false },
       { text: 'SPACE to Fly Up', condition: 'fly', dismissed: false },
       { text: 'CLICK to Drop', condition: 'drop', dismissed: false },
       { text: 'High Heat = WANTED = Danger!', condition: 'heat', dismissed: false },

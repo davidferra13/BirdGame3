@@ -15,6 +15,8 @@ export class AuthScreen {
   private container: HTMLElement;
   private visible = false;
   private onComplete: ((state: AuthState) => void) | null = null;
+  private unsubAuth: (() => void) | null = null;
+  private completionHandled = false;
 
   private mode: AuthMode = 'signin';
   private formContainer: HTMLElement;
@@ -23,7 +25,7 @@ export class AuthScreen {
   private toggleLink: HTMLElement;
 
   // Sign In fields
-  private signInEmail!: HTMLInputElement;
+  private signInIdentifier!: HTMLInputElement;
   private signInPassword!: HTMLInputElement;
   private rememberMeCheckbox!: HTMLInputElement;
 
@@ -204,13 +206,39 @@ export class AuthScreen {
 
   show(): void {
     this.visible = true;
+    this.completionHandled = false;
     this.container.style.display = 'flex';
     this.clearError();
     this.setLoading(false);
+
+    // If already authenticated (e.g. OAuth completed before show() was called),
+    // skip straight to completion
+    const currentState = authStateManager.getState();
+    if (currentState.isAuthenticated) {
+      this.completeAuth(currentState);
+      return;
+    }
+
+    // Listen for external auth changes (e.g. OAuth redirect completing).
+    // For explicit sign-in/sign-up, handleSignIn/handleSignUp call completeAuth
+    // directly and unsubscribe first to prevent double-fire.
+    this.unsubAuth?.();
+    this.unsubAuth = authStateManager.subscribe((state) => {
+      if (state.isAuthenticated && this.visible && !this.completionHandled) {
+        // Fire-and-forget guest data migration (non-blocking)
+        if (state.profile) {
+          migrateGuestDataToAccount(state.profile).catch(e =>
+            console.warn('Guest data migration failed (non-critical):', e)
+          );
+        }
+        this.completeAuth(state);
+      }
+    });
+
     // Focus the first input
     requestAnimationFrame(() => {
       if (this.mode === 'signin') {
-        this.signInEmail?.focus();
+        this.signInIdentifier?.focus();
       } else {
         this.signUpEmail?.focus();
       }
@@ -220,6 +248,17 @@ export class AuthScreen {
   hide(): void {
     this.visible = false;
     this.container.style.display = 'none';
+    this.unsubAuth?.();
+    this.unsubAuth = null;
+  }
+
+  /** Ensure auth completion fires exactly once (guards against race between
+   *  the onAuthStateChange subscriber and explicit handleSignIn/handleSignUp). */
+  private completeAuth(state: AuthState): void {
+    if (this.completionHandled) return;
+    this.completionHandled = true;
+    this.hide();
+    this.onComplete?.(state);
   }
 
   get isVisible(): boolean {
@@ -230,7 +269,7 @@ export class AuthScreen {
     this.formContainer.innerHTML = '';
 
     if (this.mode === 'signin') {
-      this.signInEmail = this.createInput(this.formContainer, 'email', 'Email');
+      this.signInIdentifier = this.createInput(this.formContainer, 'email', 'Email');
       this.signInPassword = this.createInput(this.formContainer, 'password', 'Password');
       this.signInPassword.addEventListener('keydown', (e) => {
         if (e.key === 'Enter') this.handleSubmit();
@@ -303,31 +342,59 @@ export class AuthScreen {
   }
 
   private async handleSignIn(): Promise<void> {
-    const email = this.signInEmail.value.trim();
+    const identifier = this.signInIdentifier.value.trim();
     const password = this.signInPassword.value;
 
-    if (!email || !password) {
+    if (!identifier || !password) {
       this.showError('Please enter your email and password.');
       return;
     }
 
     this.setLoading(true);
     this.clearError();
+    try {
+      console.log('[AUTH] Starting sign-in with identifier:', identifier);
+      const result = await signIn({ identifier, password });
+      console.log('[AUTH] Sign-in result:', result.success);
 
-    const result = await signIn({ email, password });
+      if (!result.success) {
+        this.showError(result.error || 'Sign in failed. Please try again.');
+        return;
+      }
 
-    if (!result.success) {
-      this.showError(result.error || 'Sign in failed. Please try again.');
-      this.setLoading(false);
-      return;
+      if (!result.profile) {
+        this.showError('Sign in succeeded but profile is missing. Please try again.');
+        return;
+      }
+
+      console.log('[AUTH] Got profile, persisting preference');
+      // Persist the "stay signed in" preference
+      setRememberMe(this.rememberMeCheckbox.checked);
+
+      // Fire-and-forget guest data migration (non-blocking)
+      migrateGuestDataToAccount(result.profile).catch(e =>
+        console.warn('Guest data migration failed (non-critical):', e)
+      );
+
+      console.log('[AUTH] Unsubscribing from auth listener');
+      // Unsubscribe BEFORE setState to prevent the subscriber from also
+      // calling completeAuth (the subscriber is for OAuth/external changes only)
+      this.unsubAuth?.();
+      this.unsubAuth = null;
+
+      console.log('[AUTH] Calling authStateManager.onSignIn');
+      await authStateManager.onSignIn(result.profile);
+      console.log('[AUTH] Calling completeAuth');
+      this.completeAuth(authStateManager.getState());
+      console.log('[AUTH] Sign-in complete!');
+    } catch (e) {
+      console.error('Unexpected sign-in error:', e);
+      this.showError('Unexpected sign in error. Please try again.');
+    } finally {
+      if (this.visible) {
+        this.setLoading(false);
+      }
     }
-
-    // Persist the "stay signed in" preference
-    setRememberMe(this.rememberMeCheckbox.checked);
-
-    await authStateManager.onSignIn(result.profile!);
-    this.hide();
-    this.onComplete?.(authStateManager.getState());
   }
 
   private async handleSignUp(): Promise<void> {
@@ -365,19 +432,38 @@ export class AuthScreen {
       return;
     }
 
+    if (result.requiresEmailConfirmation) {
+      this.showError('Account created. Check your email to confirm, then sign in.');
+      this.mode = 'signin';
+      this.buildForm();
+      this.signInIdentifier.value = email;
+      this.setLoading(false);
+      return;
+    }
+
+    if (!result.profile) {
+      this.showError('Account created. Please sign in to continue.');
+      this.mode = 'signin';
+      this.buildForm();
+      this.signInIdentifier.value = email;
+      this.setLoading(false);
+      return;
+    }
+
     // New accounts default to staying signed in
     setRememberMe(true);
 
-    // Migrate guest data to the new account
-    try {
-      await migrateGuestDataToAccount(result.profile!);
-    } catch (e) {
-      console.warn('Guest data migration failed (non-critical):', e);
-    }
+    // Fire-and-forget guest data migration (non-blocking)
+    migrateGuestDataToAccount(result.profile).catch(e =>
+      console.warn('Guest data migration failed (non-critical):', e)
+    );
 
-    await authStateManager.onSignIn(result.profile!);
-    this.hide();
-    this.onComplete?.(authStateManager.getState());
+    // Unsubscribe BEFORE setState to prevent double-fire
+    this.unsubAuth?.();
+    this.unsubAuth = null;
+
+    await authStateManager.onSignIn(result.profile);
+    this.completeAuth(authStateManager.getState());
   }
 
   private async handleGoogleSignIn(): Promise<void> {

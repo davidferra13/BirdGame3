@@ -41,6 +41,14 @@ export class DropCamera {
   private lastNPCY = 0;
   private npcVerticalSpeed = 0;
 
+  // Reusable scratch vectors (avoid per-frame allocation)
+  private _idealPos = new THREE.Vector3();
+  private _idealLookAt = new THREE.Vector3();
+
+  // Throttle: only render PiP every N frames to cut GPU cost
+  private _frameCounter = 0;
+  private static readonly PIP_RENDER_INTERVAL = 3; // render every 3rd frame
+
   // Viewport dimensions (pixels)
   private pipX = 0;
   private pipY = 0;
@@ -96,6 +104,13 @@ export class DropCamera {
   /** Whether the PiP is currently rendering. */
   isActive(): boolean {
     return this.state !== 'inactive';
+  }
+
+  /** Whether the PiP should actually draw this frame (throttled to every Nth frame). */
+  shouldRenderThisFrame(): boolean {
+    if (this.state === 'inactive') return false;
+    this._frameCounter++;
+    return this._frameCounter % DropCamera.PIP_RENDER_INTERVAL === 0;
   }
 
   /** Called every frame. Returns true if PiP should be rendered. */
@@ -195,26 +210,26 @@ export class DropCamera {
       this.orbitAngle += ORBIT_SPEED * dt;
     }
 
-    // Ideal camera position: orbiting behind + above the NPC
-    const idealPos = new THREE.Vector3(
+    // Ideal camera position: orbiting behind + above the NPC (reuse scratch vector)
+    this._idealPos.set(
       npcPos.x + Math.sin(this.orbitAngle) * CAM_OFFSET_BACK,
-      Math.max(npcPos.y + CAM_OFFSET_UP, 2.0), // Stay above ground
+      Math.max(npcPos.y + CAM_OFFSET_UP, 2.0),
       npcPos.z + Math.cos(this.orbitAngle) * CAM_OFFSET_BACK,
     );
 
-    // Look slightly below NPC center
-    const idealLookAt = new THREE.Vector3(npcPos.x, npcPos.y - 1, npcPos.z);
+    // Look slightly below NPC center (reuse scratch vector)
+    this._idealLookAt.set(npcPos.x, npcPos.y - 1, npcPos.z);
 
     // Exponential smoothing
     if (!this.posInitialized) {
-      this.smoothedPos.copy(idealPos);
-      this.smoothedLookAt.copy(idealLookAt);
+      this.smoothedPos.copy(this._idealPos);
+      this.smoothedLookAt.copy(this._idealLookAt);
       this.posInitialized = true;
     } else {
       const posAlpha = 1 - Math.exp(-6.0 * dt);
-      this.smoothedPos.lerp(idealPos, posAlpha);
+      this.smoothedPos.lerp(this._idealPos, posAlpha);
       const lookAlpha = 1 - Math.exp(-8.0 * dt);
-      this.smoothedLookAt.lerp(idealLookAt, lookAlpha);
+      this.smoothedLookAt.lerp(this._idealLookAt, lookAlpha);
     }
 
     this.camera.position.copy(this.smoothedPos);

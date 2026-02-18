@@ -35,6 +35,9 @@ export interface Balloon {
  * Manages golden feathers hidden on rooftops and thermal updrafts
  */
 export class CollectibleSystem {
+  private static readonly THERMAL_PARTICLE_COUNT = 40;
+  private static readonly THERMAL_VISUAL_DISTANCE_SQ = 260 * 260;
+
   private goldenFeathers: GoldenFeather[] = [];
   private thermalUpdrafts: ThermalUpdraft[] = [];
   private balloons: Balloon[] = [];
@@ -119,7 +122,7 @@ export class CollectibleSystem {
       const z = bounds.minZ + Math.random() * (bounds.maxZ - bounds.minZ);
 
       // Create rising particle effect
-      const particleCount = 100;
+      const particleCount = CollectibleSystem.THERMAL_PARTICLE_COUNT;
       const positions = new Float32Array(particleCount * 3);
       const velocities: number[] = [];
 
@@ -338,6 +341,15 @@ export class CollectibleSystem {
     // Animate thermal updrafts
     for (const updraft of this.thermalUpdrafts) {
       if (!updraft.active) continue;
+      if (playerPos) {
+        const dx = playerPos.x - updraft.position.x;
+        const dz = playerPos.z - updraft.position.z;
+        const inVisualRange = (dx * dx + dz * dz) <= CollectibleSystem.THERMAL_VISUAL_DISTANCE_SQ;
+        updraft.particles.visible = inVisualRange;
+        if (!inVisualRange) continue;
+      } else {
+        updraft.particles.visible = true;
+      }
 
       const positions = updraft.particles.geometry.attributes.position.array as Float32Array;
       const velocities = (updraft.particles as any).velocities as number[];

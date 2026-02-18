@@ -4,10 +4,41 @@
  * Every component reads from this rather than calling getCurrentUser() repeatedly.
  */
 
-import { supabase, getCurrentUser } from './SupabaseClient';
+import { supabase } from './SupabaseClient';
 import { getCurrentProfile } from './AuthService';
 import { Profile } from '../types/database';
 import { shouldClearSession, clearRememberMe } from './RememberMeService';
+
+/**
+ * Fetch the user's profile, creating one if it doesn't exist yet.
+ * This handles OAuth users (e.g. Google) who sign in for the first time
+ * and don't have a profile row created by a database trigger.
+ */
+async function getOrCreateProfile(userId: string): Promise<Profile | null> {
+  let profile = await getCurrentProfile();
+  if (profile) return profile;
+
+  // Profile doesn't exist — create one (mirrors AuthService.signIn logic)
+  try {
+    const { data: newProfile, error } = await supabase
+      .from('profiles')
+      .insert({
+        id: userId,
+        username: `Player_${userId.substring(0, 8)}`,
+      })
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Failed to create profile for OAuth user:', error);
+      return null;
+    }
+    return newProfile;
+  } catch (e) {
+    console.error('Error creating profile:', e);
+    return null;
+  }
+}
 
 export interface AuthState {
   isAuthenticated: boolean;
@@ -24,6 +55,7 @@ const GUEST_NAME_KEY = 'birdgame_guest_name';
 class AuthStateManager {
   private state: AuthState;
   private listeners: Set<AuthStateListener> = new Set();
+  private static readonly SESSION_CHECK_TIMEOUT_MS = 8000;
 
   constructor() {
     // Start with guest state; initialize() will resolve the real state
@@ -42,41 +74,21 @@ class AuthStateManager {
    */
   async initialize(): Promise<AuthState> {
     try {
-      // Check for existing session
-      const { data: { session } } = await supabase.auth.getSession();
-
-      if (session?.user) {
-        // If the user opted out of "stay signed in" and the browser was closed,
-        // clear the session so they must sign in again.
-        if (shouldClearSession()) {
-          await supabase.auth.signOut();
-          clearRememberMe();
-          // Fall through to guest state below
-        } else {
-          const profile = await getCurrentProfile();
-          if (profile) {
-            this.state = {
-              isAuthenticated: true,
-              userId: session.user.id,
-              username: profile.username,
-              profile,
-            };
-          }
-        }
-      }
-
-      // Listen for future auth state changes (token refresh, sign out from another tab)
+      // Set up the auth state change listener FIRST, before getSession(),
+      // so we catch any events fired during session initialization
+      // (e.g. SIGNED_IN from OAuth redirect processing).
       supabase.auth.onAuthStateChange(async (event, session) => {
         if (event === 'SIGNED_IN' && session?.user) {
-          const profile = await getCurrentProfile();
-          if (profile) {
-            this.setState({
-              isAuthenticated: true,
-              userId: session.user.id,
-              username: profile.username,
-              profile,
-            });
-          }
+          const profile = await getOrCreateProfile(session.user.id);
+          const fallbackName = session.user.user_metadata?.full_name
+            || session.user.email?.split('@')[0]
+            || `Player_${session.user.id.substring(0, 8)}`;
+          this.setState({
+            isAuthenticated: true,
+            userId: session.user.id,
+            username: profile?.username || fallbackName,
+            profile: profile || null,
+          });
         } else if (event === 'SIGNED_OUT') {
           const guest = this.getGuestIdentity();
           this.setState({
@@ -87,8 +99,41 @@ class AuthStateManager {
           });
         }
       });
+
+      // Now check for an existing session.
+      // getSession() waits for Supabase's internal initialization to complete,
+      // which includes processing OAuth callback params (PKCE code or implicit tokens) from the URL.
+      const sessionResult = await Promise.race([
+        supabase.auth.getSession(),
+        new Promise<never>((_, reject) => {
+          setTimeout(() => reject(new Error('Auth session check timed out')), AuthStateManager.SESSION_CHECK_TIMEOUT_MS);
+        }),
+      ]);
+
+      const { data: { session } } = sessionResult;
+
+      if (session?.user) {
+        // If the user opted out of "stay signed in" and the browser was closed,
+        // clear the session so they must sign in again.
+        if (shouldClearSession()) {
+          await supabase.auth.signOut();
+          clearRememberMe();
+          // Fall through to guest state below
+        } else {
+          const profile = await getOrCreateProfile(session.user.id);
+          const fallbackName = session.user.user_metadata?.full_name
+            || session.user.email?.split('@')[0]
+            || `Player_${session.user.id.substring(0, 8)}`;
+          this.state = {
+            isAuthenticated: true,
+            userId: session.user.id,
+            username: profile?.username || fallbackName,
+            profile: profile || null,
+          };
+        }
+      }
     } catch (error) {
-      console.warn('Auth initialization failed, continuing as guest:', error);
+      console.warn('Auth initialization failed or timed out, continuing as guest:', error);
     }
 
     return this.state;
@@ -107,10 +152,9 @@ class AuthStateManager {
 
   /** Called after successful sign-in or sign-up */
   async onSignIn(profile: Profile): Promise<void> {
-    const user = await getCurrentUser();
     this.setState({
       isAuthenticated: true,
-      userId: user?.id || profile.id,
+      userId: profile.id,
       username: profile.username,
       profile,
     });

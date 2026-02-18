@@ -24,6 +24,10 @@ const PVP_COIN_STEAL_MIN = 5;
 const PVP_COIN_STEAL_MAX = 100;
 const PVP_STUN_DURATION = 1.5; // seconds
 const PVP_HIT_HEAT = 5;
+const PVP_DAMAGE_ALTITUDE_MIN = 10;
+const PVP_DAMAGE_ALTITUDE_MAX = 200;
+const PVP_DAMAGE_MULTIPLIER_MIN = 1.0;
+const PVP_DAMAGE_MULTIPLIER_MAX = 2.0;
 
 let nextPoopId = 0;
 
@@ -113,6 +117,7 @@ export class WorldState {
       ownerId,
       position: { ...position },
       velocity: { ...velocity },
+      spawnAltitude: position.y,
       spawnTime: Date.now(),
     });
   }
@@ -214,7 +219,7 @@ export class WorldState {
         const attacker = this.players.get(poop.ownerId);
         if (!attacker) continue;
 
-        const result = this.processPvPHit(attacker, victim);
+        const result = this.processPvPHit(attacker, victim, poop.spawnAltitude);
         toRemove.push(i);
         break; // poop consumed
       }
@@ -226,10 +231,22 @@ export class WorldState {
     }
   }
 
-  private processPvPHit(attacker: Player, victim: Player): PvPHitResult {
-    // Calculate stolen coins
-    let stolenCoins = Math.floor(victim.coins * PVP_COIN_STEAL_FRACTION);
-    stolenCoins = Math.max(PVP_COIN_STEAL_MIN, Math.min(PVP_COIN_STEAL_MAX, stolenCoins));
+  private getAltitudeDamageMultiplier(spawnAltitude: number): number {
+    const t = (spawnAltitude - PVP_DAMAGE_ALTITUDE_MIN)
+      / (PVP_DAMAGE_ALTITUDE_MAX - PVP_DAMAGE_ALTITUDE_MIN);
+    const clamped = Math.max(0, Math.min(1, t));
+    return PVP_DAMAGE_MULTIPLIER_MIN
+      + (PVP_DAMAGE_MULTIPLIER_MAX - PVP_DAMAGE_MULTIPLIER_MIN) * clamped;
+  }
+
+  private processPvPHit(attacker: Player, victim: Player, spawnAltitude: number): PvPHitResult {
+    const damageMultiplier = this.getAltitudeDamageMultiplier(spawnAltitude);
+
+    // Calculate stolen coins (scaled by drop altitude)
+    let stolenCoins = Math.floor(victim.coins * PVP_COIN_STEAL_FRACTION * damageMultiplier);
+    const minSteal = Math.floor(PVP_COIN_STEAL_MIN * damageMultiplier);
+    const maxSteal = Math.floor(PVP_COIN_STEAL_MAX * damageMultiplier);
+    stolenCoins = Math.max(minSteal, Math.min(maxSteal, stolenCoins));
     if (stolenCoins > victim.coins) stolenCoins = victim.coins;
 
     // Apply effects
@@ -253,7 +270,7 @@ export class WorldState {
     // Notify external systems (e.g. BotManager for reactive behavior)
     this.onPvPHit?.(result);
 
-    console.log(`💩 PvP HIT! ${attacker.username} splatted ${victim.username} (stole ${stolenCoins} coins)`);
+    console.log(`💩 PvP HIT! ${attacker.username} splatted ${victim.username} (stole ${stolenCoins} coins @ ${spawnAltitude.toFixed(1)}y, x${damageMultiplier.toFixed(2)})`);
     return result;
   }
 

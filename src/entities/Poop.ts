@@ -107,6 +107,13 @@ export class Poop {
     // Gravity
     this.velocity.y -= POOP.GRAVITY * dt;
 
+    // Optional horizontal drag to match CCIP drag-aware prediction
+    if (POOP.AIR_DRAG > 0) {
+      const dragFactor = Math.exp(-POOP.AIR_DRAG * dt);
+      this.velocity.x *= dragFactor;
+      this.velocity.z *= dragFactor;
+    }
+
     // Move
     this.mesh.position.addScaledVector(this.velocity, dt);
 

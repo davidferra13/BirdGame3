@@ -76,7 +76,7 @@ export class HowToPlay {
     content.innerHTML =
       section('Movement', '#87ceeb', '✈️',
         row('W / ↑', 'Move Forward / Pitch Up') +
-        row('S / ↓', 'Move Backward / Brake') +
+        row('S / ↓', 'Brake / Slow Down') +
         row('A / ←', 'Move Left / Turn Left') +
         row('D / →', 'Move Right / Turn Right') +
         row('Mouse', 'Look Around / Steer')
@@ -85,9 +85,10 @@ export class HowToPlay {
       section('Vertical Flight', '#80d0ff', '🔼',
         row('SPACE', 'Ascend / Fly Up') +
         row('L-CTRL', 'Fast Descend') +
-        row('L-SHIFT', 'Dive') +
-        row('TAB', 'Gentle Descent') +
-        row('SHIFT + SPACE', 'Dive Bomb')
+        row('R-SHIFT', 'Dive') +
+        row('L-SHIFT', 'Precision Descend (Slow)') +
+        row('SHIFT + SPACE', 'Dive Bomb') +
+        row('CAPS LOCK', 'Toggle Bomber Mode')
       ) +
 
       section('Actions', '#FFD700', '💩',

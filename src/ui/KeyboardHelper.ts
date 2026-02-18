@@ -43,7 +43,8 @@ export class KeyboardHelper {
     const compactHints = [
       { key: 'WASD', label: 'Fly' },
       { key: 'Space', label: 'Up' },
-      { key: 'Tab', label: 'Descend' },
+      { key: 'Caps', label: 'Bomber' },
+      { key: 'Shift', label: 'Soft Down' },
       { key: 'Shift', label: 'Dive' },
       { key: 'Click', label: 'Poop' },
       { key: 'R-Click', label: 'Grab NPC' },
@@ -90,12 +91,13 @@ export class KeyboardHelper {
     columns.style.cssText = `display: flex; gap: 24px;`;
 
     const flightShortcuts = [
-      { key: 'WASD', action: 'Fly & Turn' },
-      { key: 'Space', action: 'Ascend' },
-      { key: 'Tab', action: 'Gentle Descent' },
-      { key: 'Ctrl', action: 'Fast Descent' },
-      { key: 'Shift', action: 'Dive' },
+      { key: 'W/A/D', action: 'Forward & Turn' },
       { key: 'S', action: 'Brake' },
+      { key: 'Space', action: 'Ascend' },
+      { key: 'Caps', action: 'Bomber Mode' },
+      { key: 'Shift', action: 'Precision Descend' },
+      { key: 'Ctrl', action: 'Fast Descent' },
+      { key: 'R-Shift', action: 'Dive' },
       { key: 'T', action: 'Boost' },
     ];
 

@@ -177,6 +177,14 @@ For production, enable email/password auth:
    - Build command: `pnpm run build`
    - Publish directory: `dist`
    - Add environment variables
+   - Enable Git-based deploys for your default branch
+
+4. **Auto-deploy newest build on every push (recommended)**
+   - This repo includes `.github/workflows/netlify-deploy.yml`
+   - Add GitHub repository secrets:
+     - `NETLIFY_AUTH_TOKEN`
+     - `NETLIFY_SITE_ID`
+   - Every push to `master` or `main` deploys the latest `dist/` to Netlify production
 
 ### Option C: Static Hosting (S3, Cloudflare Pages, etc.)
 

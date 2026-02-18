@@ -27,7 +27,15 @@ export interface KeyBindings {
   ability: string;
   abilityCycle: string;
   uTurn: string;
+  bomberMode: string;
 }
+
+export const RESERVED_BINDING_CODES = new Set<string>([
+  'ControlLeft',
+  'ControlRight',
+  'MetaLeft',
+  'MetaRight',
+]);
 
 export const DEFAULT_BINDINGS: KeyBindings = {
   moveForward: 'KeyW',
@@ -35,8 +43,8 @@ export const DEFAULT_BINDINGS: KeyBindings = {
   moveLeft: 'KeyA',
   moveRight: 'KeyD',
   ascend: 'Space',
-  fastDescend: 'ControlLeft',
-  dive: 'ShiftLeft',
+  fastDescend: 'KeyG',
+  dive: 'ShiftRight',
   boost: 'KeyT',
   interact: 'KeyZ',
   pause: 'Escape',
@@ -54,10 +62,11 @@ export const DEFAULT_BINDINGS: KeyBindings = {
   sideFlipRight: 'KeyC',
   invertedFlip: 'KeyV',
   aileronRoll: 'KeyN',
-  gentleDescend: 'Tab',
+  gentleDescend: 'ShiftLeft',
   ability: 'KeyJ',
   abilityCycle: 'KeyU',
   uTurn: 'Backquote',
+  bomberMode: 'CapsLock',
 };
 
 export const BINDINGS_STORAGE_KEY = 'bird-game-keybindings';
@@ -102,12 +111,36 @@ export class InputManager {
   private touchBank = false;
   private touchUTurn = false;
 
+  // Store bound handlers for cleanup
+  private _onKeyDown: (e: KeyboardEvent) => void;
+  private _onKeyUp: (e: KeyboardEvent) => void;
+  private _onMouseMove: (e: MouseEvent) => void;
+  private _onMouseDown: (e: MouseEvent) => void;
+  private _onMouseUp: (e: MouseEvent) => void;
+  private _onContextMenu: (e: Event) => void;
+  private _onWheel: (e: WheelEvent) => void;
+  private _onPointerLockChange: () => void;
+  private _onBlur: () => void;
+
   constructor() {
     this.bindings = this.loadBindings();
+    // Force requested baseline remap:
+    // Caps Lock = bomber mode, Left Shift = precision descend.
+    this.bindings.bomberMode = 'CapsLock';
+    this.bindings.gentleDescend = 'ShiftLeft';
+    if (this.bindings.dive === this.bindings.gentleDescend) {
+      this.bindings.dive = 'ShiftRight';
+    }
+    if (RESERVED_BINDING_CODES.has(this.bindings.fastDescend)) {
+      this.bindings.fastDescend = this.findSafeFastDescendBinding();
+    }
+    try {
+      localStorage.setItem(BINDINGS_STORAGE_KEY, JSON.stringify(this.bindings));
+    } catch { /* storage unavailable */ }
     this.isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
 
     // ── Keyboard ──
-    window.addEventListener('keydown', (e) => {
+    this._onKeyDown = (e: KeyboardEvent) => {
       this._lastInputTimestamp = performance.now();
       if (!this.keysDown.has(e.code)) {
         this.keysPressed.add(e.code);
@@ -115,27 +148,29 @@ export class InputManager {
       this.keysDown.add(e.code);
       if (e.code === 'Space') e.preventDefault();
       if (e.code === 'Tab') e.preventDefault();
-    });
+    };
+    window.addEventListener('keydown', this._onKeyDown);
 
-    window.addEventListener('keyup', (e) => {
+    this._onKeyUp = (e: KeyboardEvent) => {
       this.keysDown.delete(e.code);
-    });
+    };
+    window.addEventListener('keyup', this._onKeyUp);
 
     // ── Mouse ──
-    window.addEventListener('mousemove', (e) => {
+    this._onMouseMove = (e: MouseEvent) => {
       if (this._pointerLocked) {
         this._lastInputTimestamp = performance.now();
         this._mouseDx += e.movementX;
         this._mouseDy += e.movementY;
       }
-    });
+    };
+    window.addEventListener('mousemove', this._onMouseMove);
 
-    window.addEventListener('mousedown', (e) => {
+    this._onMouseDown = (e: MouseEvent) => {
       this._lastInputTimestamp = performance.now();
       if (e.button === 0) {
         this._mouseClicked = true;
         if (!this._pointerLocked) {
-          // Don't request pointer lock when clicking on UI overlays (menus, buttons, etc.)
           const target = e.target as HTMLElement;
           const isCanvas = target.tagName === 'CANVAS';
           if (isCanvas) {
@@ -145,44 +180,65 @@ export class InputManager {
       }
       if (e.button === 2) {
         if (!this._rightMouseDown) {
-          this._rightMouseClicked = true; // Track press (only fires once)
+          this._rightMouseClicked = true;
         }
         this._rightMouseDown = true;
-        e.preventDefault(); // Prevent context menu
+        e.preventDefault();
       }
-    });
+    };
+    window.addEventListener('mousedown', this._onMouseDown);
 
-    window.addEventListener('mouseup', (e) => {
+    this._onMouseUp = (e: MouseEvent) => {
       if (e.button === 2) {
         this._rightMouseDown = false;
       }
-    });
+    };
+    window.addEventListener('mouseup', this._onMouseUp);
 
-    // Prevent context menu on right-click
-    window.addEventListener('contextmenu', (e) => {
+    this._onContextMenu = (e: Event) => {
       e.preventDefault();
-    });
+    };
+    window.addEventListener('contextmenu', this._onContextMenu);
 
     // ── Scroll wheel (altitude control) ──
-    window.addEventListener('wheel', (e) => {
+    this._onWheel = (e: WheelEvent) => {
       if (this._pointerLocked) {
         this._lastInputTimestamp = performance.now();
         this._scrollDelta += e.deltaY;
         e.preventDefault();
       }
-    }, { passive: false });
+    };
+    window.addEventListener('wheel', this._onWheel, { passive: false });
 
-    document.addEventListener('pointerlockchange', () => {
+    this._onPointerLockChange = () => {
       this._pointerLocked = document.pointerLockElement === document.body;
-    });
+    };
+    document.addEventListener('pointerlockchange', this._onPointerLockChange);
 
-    window.addEventListener('blur', () => {
+    this._onBlur = () => {
       this.keysDown.clear();
-    });
+    };
+    window.addEventListener('blur', this._onBlur);
 
     // ── Touch ──
     if (this.isTouchDevice) {
       this.createTouchUI();
+    }
+  }
+
+  dispose(): void {
+    window.removeEventListener('keydown', this._onKeyDown);
+    window.removeEventListener('keyup', this._onKeyUp);
+    window.removeEventListener('mousemove', this._onMouseMove);
+    window.removeEventListener('mousedown', this._onMouseDown);
+    window.removeEventListener('mouseup', this._onMouseUp);
+    window.removeEventListener('contextmenu', this._onContextMenu);
+    window.removeEventListener('wheel', this._onWheel);
+    document.removeEventListener('pointerlockchange', this._onPointerLockChange);
+    window.removeEventListener('blur', this._onBlur);
+    if (this.touchControls) {
+      this.touchControls.remove();
+      this.touchControls = null;
     }
   }
 
@@ -198,7 +254,23 @@ export class InputManager {
     return { ...DEFAULT_BINDINGS };
   }
 
+  private findSafeFastDescendBinding(): string {
+    const candidates = [DEFAULT_BINDINGS.fastDescend, 'KeyB', 'KeyH'];
+    for (const candidate of candidates) {
+      let inUse = false;
+      for (const [action, code] of Object.entries(this.bindings)) {
+        if (action !== 'fastDescend' && code === candidate) {
+          inUse = true;
+          break;
+        }
+      }
+      if (!inUse) return candidate;
+    }
+    return DEFAULT_BINDINGS.fastDescend;
+  }
+
   setBinding(action: keyof KeyBindings, code: string): void {
+    if (RESERVED_BINDING_CODES.has(code)) return;
     (this.bindings as unknown as Record<string, string>)[action] = code;
     try {
       localStorage.setItem(BINDINGS_STORAGE_KEY, JSON.stringify(this.bindings));
@@ -212,16 +284,23 @@ export class InputManager {
     } catch { /* ignore */ }
   }
 
+  // ── Visual joystick elements ─────────────────────
+  private joyBase: HTMLElement | null = null;
+  private joyThumb: HTMLElement | null = null;
+  private joyMaxDist = 50;
+
   // ── Touch UI ──────────────────────────────────────
 
   private createTouchUI(): void {
+    const vw = () => window.innerWidth;
+
     const root = document.createElement('div');
     root.id = 'touch-controls';
     root.style.cssText =
       'position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:80;' +
       'touch-action:none;user-select:none;-webkit-user-select:none;';
 
-    // Left half — joystick zone
+    // ── Left half — joystick zone ──
     const joyZone = document.createElement('div');
     joyZone.style.cssText =
       'position:absolute;left:0;top:0;width:50%;height:100%;pointer-events:auto;';
@@ -231,48 +310,82 @@ export class InputManager {
     joyZone.addEventListener('touchcancel', (e) => this.onJoyEnd(e), { passive: false });
     root.appendChild(joyZone);
 
-    // Right half — camera swipe zone
+    // Visual joystick base (translucent ring, hidden until touch)
+    const baseSize = Math.min(130, vw() * 0.22);
+    this.joyMaxDist = baseSize * 0.38;
+    this.joyBase = document.createElement('div');
+    this.joyBase.style.cssText =
+      `position:fixed;width:${baseSize}px;height:${baseSize}px;border-radius:50%;` +
+      `border:2px solid rgba(255,255,255,0.25);background:rgba(255,255,255,0.06);` +
+      `pointer-events:none;display:none;transform:translate(-50%,-50%);` +
+      `box-shadow:inset 0 0 20px rgba(255,255,255,0.05);`;
+    root.appendChild(this.joyBase);
+
+    // Visual joystick thumb (inner knob)
+    const thumbSize = Math.round(baseSize * 0.38);
+    this.joyThumb = document.createElement('div');
+    this.joyThumb.style.cssText =
+      `position:fixed;width:${thumbSize}px;height:${thumbSize}px;border-radius:50%;` +
+      `background:rgba(255,255,255,0.35);border:2px solid rgba(255,255,255,0.5);` +
+      `pointer-events:none;display:none;transform:translate(-50%,-50%);` +
+      `box-shadow:0 0 10px rgba(255,255,255,0.15);`;
+    root.appendChild(this.joyThumb);
+
+    // ── Right half — camera swipe zone (full right, top 70%) ──
     const camZone = document.createElement('div');
     camZone.style.cssText =
-      'position:absolute;right:0;top:0;width:50%;height:60%;pointer-events:auto;';
+      'position:absolute;right:0;top:0;width:50%;height:70%;pointer-events:auto;';
     camZone.addEventListener('touchstart', (e) => this.onCamStart(e), { passive: false });
     camZone.addEventListener('touchmove', (e) => this.onCamMove(e), { passive: false });
     camZone.addEventListener('touchend', (e) => this.onCamEnd(e), { passive: false });
     camZone.addEventListener('touchcancel', (e) => this.onCamEnd(e), { passive: false });
     root.appendChild(camZone);
 
-    // Buttons (bottom-right in diamond pattern)
-    const btnStyle = (bottom: string, right: string, color: string) =>
-      `position:absolute;bottom:${bottom};right:${right};width:70px;height:70px;` +
-      `border-radius:50%;background:${color};border:2px solid rgba(255,255,255,0.5);` +
-      `pointer-events:auto;display:flex;align-items:center;justify-content:center;` +
-      `font-size:11px;font-weight:bold;color:#fff;font-family:system-ui;opacity:0.7;text-align:center;`;
+    // ── Action cluster (bottom-right, compact triangle layout) ──
+    // Responsive sizing: buttons scale with viewport
+    const btnSize = Math.max(52, Math.min(62, vw() * 0.14));
+    const gap = btnSize * 0.18;
+    const clusterRight = 16;
+    const clusterBottom = 16;
 
-    const dropBtn = this.makeButton('DROP', btnStyle('20px', '90px', 'rgba(200,100,50,0.6)'));
+    const makeActionBtn = (label: string, color: string, icon: string): HTMLElement => {
+      const btn = document.createElement('div');
+      btn.style.cssText =
+        `width:${btnSize}px;height:${btnSize}px;border-radius:50%;background:${color};` +
+        `border:1.5px solid rgba(255,255,255,0.4);pointer-events:auto;` +
+        `display:flex;align-items:center;justify-content:center;flex-direction:column;` +
+        `font-size:${Math.round(btnSize * 0.18)}px;font-weight:700;color:#fff;` +
+        `font-family:system-ui,sans-serif;opacity:0.75;text-align:center;` +
+        `text-shadow:0 1px 3px rgba(0,0,0,0.6);line-height:1.1;`;
+      btn.innerHTML = `<span style="font-size:${Math.round(btnSize * 0.32)}px">${icon}</span>${label}`;
+      return btn;
+    };
+
+    // DROP button (top of cluster)
+    const dropBtn = makeActionBtn('DROP', 'rgba(200,100,50,0.55)', '\uD83D\uDCA9');
+    dropBtn.style.position = 'absolute';
+    dropBtn.style.bottom = `${clusterBottom + btnSize + gap}px`;
+    dropBtn.style.right = `${clusterRight + (btnSize + gap) / 2}px`;
     dropBtn.addEventListener('touchstart', (e) => { e.preventDefault(); this.touchDrop = true; });
     dropBtn.addEventListener('touchend', () => { this.touchDrop = false; });
     dropBtn.addEventListener('touchcancel', () => { this.touchDrop = false; });
     root.appendChild(dropBtn);
 
-    const ascendBtn = this.makeButton('FLY UP', btnStyle('110px', '20px', 'rgba(80,160,255,0.6)'));
-    ascendBtn.addEventListener('touchstart', (e) => { e.preventDefault(); this.touchAscend = true; });
-    ascendBtn.addEventListener('touchend', () => { this.touchAscend = false; });
-    ascendBtn.addEventListener('touchcancel', () => { this.touchAscend = false; });
-    root.appendChild(ascendBtn);
-
-    const diveBtn = this.makeButton('DIVE', btnStyle('110px', '160px', 'rgba(255,80,80,0.6)'));
-    diveBtn.addEventListener('touchstart', (e) => { e.preventDefault(); this.touchDive = true; });
-    diveBtn.addEventListener('touchend', () => { this.touchDive = false; });
-    diveBtn.addEventListener('touchcancel', () => { this.touchDive = false; });
-    root.appendChild(diveBtn);
-
-    const bankBtn = this.makeButton('BANK\nSPACE', btnStyle('200px', '90px', 'rgba(68,255,170,0.6)'));
+    // BANK button (bottom-left of cluster)
+    const bankBtn = makeActionBtn('BANK', 'rgba(68,255,170,0.45)', '\u2728');
+    bankBtn.style.position = 'absolute';
+    bankBtn.style.bottom = `${clusterBottom}px`;
+    bankBtn.style.right = `${clusterRight + btnSize + gap}px`;
     bankBtn.addEventListener('touchstart', (e) => { e.preventDefault(); this.touchBank = true; });
     bankBtn.addEventListener('touchend', () => { this.touchBank = false; });
     bankBtn.addEventListener('touchcancel', () => { this.touchBank = false; });
     root.appendChild(bankBtn);
 
-    const uTurnBtn = this.makeButton('180', btnStyle('290px', '90px', 'rgba(255,200,50,0.6)'));
+    // 180 button (bottom-right of cluster)
+    const uTurnBtn = makeActionBtn('180', 'rgba(255,200,50,0.45)', '\u21BA');
+    uTurnBtn.style.position = 'absolute';
+    uTurnBtn.style.bottom = `${clusterBottom}px`;
+    uTurnBtn.style.right = `${clusterRight}px`;
     uTurnBtn.addEventListener('touchstart', (e) => { e.preventDefault(); this.touchUTurn = true; });
     uTurnBtn.addEventListener('touchend', () => { this.touchUTurn = false; });
     uTurnBtn.addEventListener('touchcancel', () => { this.touchUTurn = false; });
@@ -302,6 +415,16 @@ export class InputManager {
     this.joyAxis.h = 0;
     this.joyAxis.v = 0;
 
+    // Show visual joystick at touch origin
+    if (this.joyBase && this.joyThumb) {
+      this.joyBase.style.display = 'block';
+      this.joyBase.style.left = `${t.clientX}px`;
+      this.joyBase.style.top = `${t.clientY}px`;
+      this.joyThumb.style.display = 'block';
+      this.joyThumb.style.left = `${t.clientX}px`;
+      this.joyThumb.style.top = `${t.clientY}px`;
+    }
+
     // Auto-start game on touch (like pointer lock)
     this._pointerLocked = true;
   }
@@ -313,9 +436,25 @@ export class InputManager {
       if (t.identifier === this.joyTouchId) {
         const dx = t.clientX - this.joyOrigin.x;
         const dy = t.clientY - this.joyOrigin.y;
-        const maxDist = 50;
-        this.joyAxis.h = Math.max(-1, Math.min(1, dx / maxDist));
-        this.joyAxis.v = Math.max(-1, Math.min(1, -dy / maxDist)); // up = positive
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        const maxDist = this.joyMaxDist;
+        const clampedDist = Math.min(dist, maxDist);
+        const angle = Math.atan2(dy, dx);
+        const clampedX = Math.cos(angle) * clampedDist;
+        const clampedY = Math.sin(angle) * clampedDist;
+
+        this.joyAxis.h = Math.max(-1, Math.min(1, clampedX / maxDist));
+        this.joyAxis.v = Math.max(-1, Math.min(1, -clampedY / maxDist)); // up = positive
+
+        // Map vertical axis to fly up / dive
+        this.touchAscend = this.joyAxis.v > 0.45;
+        this.touchDive = this.joyAxis.v < -0.45;
+
+        // Update visual thumb position
+        if (this.joyThumb) {
+          this.joyThumb.style.left = `${this.joyOrigin.x + clampedX}px`;
+          this.joyThumb.style.top = `${this.joyOrigin.y + clampedY}px`;
+        }
       }
     }
   }
@@ -326,6 +465,12 @@ export class InputManager {
         this.joyTouchId = null;
         this.joyAxis.h = 0;
         this.joyAxis.v = 0;
+        this.touchAscend = false;
+        this.touchDive = false;
+
+        // Hide visual joystick
+        if (this.joyBase) this.joyBase.style.display = 'none';
+        if (this.joyThumb) this.joyThumb.style.display = 'none';
       }
     }
   }
@@ -394,7 +539,7 @@ export class InputManager {
   }
 
   isFastDescending(): boolean {
-    return this.isDown(this.bindings.fastDescend) || this.isDown('ControlRight') || this.touchDive;
+    return this.isDown(this.bindings.fastDescend) || this.touchDive;
   }
 
   isDive(): boolean {
@@ -402,7 +547,16 @@ export class InputManager {
   }
 
   isGentleDescending(): boolean {
-    return this.isDown(this.bindings.gentleDescend);
+    // Keep Tab as a secondary fallback so existing muscle memory still works.
+    return this.isDown(this.bindings.gentleDescend) || this.isDown('Tab');
+  }
+
+  isMoveForwardHeld(): boolean {
+    return this.isDown(this.bindings.moveForward) || this.isDown('ArrowUp') || this.joyAxis.v > 0.25;
+  }
+
+  isBrakeHeld(): boolean {
+    return this.isDown(this.bindings.moveBackward) || this.isDown('ArrowDown') || this.joyAxis.v < -0.25;
   }
 
   isDiveBomb(): boolean {
@@ -484,6 +638,10 @@ export class InputManager {
 
   wasUTurnPressed(): boolean {
     return this.wasPressed(this.bindings.uTurn) || this.touchUTurn;
+  }
+
+  wasBomberModePressed(): boolean {
+    return this.wasPressed(this.bindings.bomberMode);
   }
 
   get mouseDx(): number {

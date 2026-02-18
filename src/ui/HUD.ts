@@ -81,56 +81,80 @@ export class HUD {
   private drivingPrompt: HTMLElement;
   private speedometerEl: HTMLElement;
 
+  // Change detection cache — skip DOM writes when values haven't changed
+  private _prevState = '';
+  private _prevStateColor = '';
+  private _prevMultiplier = '';
+  private _prevCoins = '';
+  private _prevBanked = '';
+  private _prevLevel = '';
+  private _prevXp = '';
+  private _prevXpWidth = '';
+  private _prevAltSpeed = '';
+  private _prevCooldownHeight = '';
+  private _prevWorms = '';
+  private _prevFeathers = '';
+  private _prevGoldenEggs = '';
+  private _prevDistrict = '';
+  private _prevHotspot = false;
+  private _prevBankChannel = '';
+
   constructor() {
     this.container = document.getElementById('hud')!;
     this.container.innerHTML = '';
 
     const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
 
+    // Responsive text stroke helper — white text with thin black outline
+    const stroke = '-1px -1px 0 rgba(0,0,0,0.7),1px -1px 0 rgba(0,0,0,0.7),-1px 1px 0 rgba(0,0,0,0.7),1px 1px 0 rgba(0,0,0,0.7)';
+    // Responsive scale factor based on viewport width
+    const vw = window.innerWidth;
+    const scale = Math.max(0.7, Math.min(1, vw / 500));
+
     // === TOP LEFT: Multiplier, State, Level ===
-    const topLeft = this.div('position:absolute;top:16px;left:16px;');
+    const topLeft = this.div(`position:absolute;top:${Math.round(10 * scale)}px;left:${Math.round(10 * scale)}px;`);
 
     this.stateEl = this.div(
-      'font-size:14px;font-weight:bold;letter-spacing:2px;text-shadow:1px 1px 3px rgba(0,0,0,0.8);margin-bottom:6px;height:18px;',
+      `font-size:${Math.round(13 * scale)}px;font-weight:bold;letter-spacing:2px;color:#fff;text-shadow:${stroke};margin-bottom:4px;height:${Math.round(16 * scale)}px;`,
     );
     topLeft.appendChild(this.stateEl);
 
     this.multiplierEl = this.div(
-      'font-size:20px;font-weight:bold;color:#ffdd44;text-shadow:1px 1px 3px rgba(0,0,0,0.7);margin-top:6px;height:24px;',
+      `font-size:${Math.round(18 * scale)}px;font-weight:bold;color:#fff;text-shadow:${stroke};margin-top:4px;height:${Math.round(22 * scale)}px;`,
     );
     topLeft.appendChild(this.multiplierEl);
 
-    this.altSpeedEl = this.div('font-size:10px;color:#aaa;text-shadow:1px 1px 2px rgba(0,0,0,0.7);margin-top:4px;');
+    this.altSpeedEl = this.div(`font-size:${Math.round(9 * scale)}px;color:rgba(255,255,255,0.7);text-shadow:${stroke};margin-top:3px;`);
     topLeft.appendChild(this.altSpeedEl);
 
     this.container.appendChild(topLeft);
 
-    // === TOP RIGHT: Coins, Banked, Level, XP ===
-    const topRight = this.div('position:absolute;top:16px;right:16px;text-align:right;');
+    // === TOP RIGHT: Coins, Banked, Level, XP — positioned to avoid minimap ===
+    const topRight = this.div(`position:absolute;top:${Math.round(10 * scale)}px;right:${isTouchDevice ? '90' : '16'}px;text-align:right;`);
 
-    this.coinsEl = this.div('font-size:28px;font-weight:bold;text-shadow:2px 2px 4px rgba(0,0,0,0.7);');
+    this.coinsEl = this.div(`font-size:${Math.round(24 * scale)}px;font-weight:bold;color:#fff;text-shadow:${stroke};`);
     topRight.appendChild(this.coinsEl);
 
-    this.bankedEl = this.div('font-size:14px;color:#44ffaa;text-shadow:1px 1px 3px rgba(0,0,0,0.7);margin-top:2px;');
+    this.bankedEl = this.div(`font-size:${Math.round(12 * scale)}px;color:#44ffaa;text-shadow:${stroke};margin-top:2px;`);
     topRight.appendChild(this.bankedEl);
 
     // Secondary currencies row
-    const currencyRow = this.div('display:flex;gap:12px;justify-content:flex-end;margin-top:4px;');
-    this.wormsEl = this.div('font-size:12px;color:#dd8844;text-shadow:1px 1px 3px rgba(0,0,0,0.7);');
-    this.feathersEl = this.div('font-size:12px;color:#44ffaa;text-shadow:1px 1px 3px rgba(0,0,0,0.7);');
-    this.goldenEggsEl = this.div('font-size:12px;color:#ffdd44;text-shadow:1px 1px 3px rgba(0,0,0,0.7);');
+    const currencyRow = this.div(`display:flex;gap:${Math.round(8 * scale)}px;justify-content:flex-end;margin-top:3px;`);
+    this.wormsEl = this.div(`font-size:${Math.round(10 * scale)}px;color:#dd8844;text-shadow:${stroke};`);
+    this.feathersEl = this.div(`font-size:${Math.round(10 * scale)}px;color:#44ffaa;text-shadow:${stroke};`);
+    this.goldenEggsEl = this.div(`font-size:${Math.round(10 * scale)}px;color:#ffdd44;text-shadow:${stroke};`);
     currencyRow.appendChild(this.wormsEl);
     currencyRow.appendChild(this.feathersEl);
     currencyRow.appendChild(this.goldenEggsEl);
     topRight.appendChild(currencyRow);
 
-    this.levelEl = this.div('font-size:13px;color:#aaccff;text-shadow:1px 1px 3px rgba(0,0,0,0.7);margin-top:4px;font-weight:bold;');
+    this.levelEl = this.div(`font-size:${Math.round(11 * scale)}px;color:#aaccff;text-shadow:${stroke};margin-top:3px;font-weight:bold;`);
     topRight.appendChild(this.levelEl);
 
-    this.xpEl = this.div('font-size:11px;color:#aaccff;text-shadow:1px 1px 3px rgba(0,0,0,0.7);margin-top:2px;');
+    this.xpEl = this.div(`font-size:${Math.round(9 * scale)}px;color:#aaccff;text-shadow:${stroke};margin-top:2px;`);
     topRight.appendChild(this.xpEl);
 
-    const xpBarOuter = this.div('width:120px;height:6px;background:rgba(0,0,0,0.4);border-radius:3px;overflow:hidden;margin-top:2px;margin-left:auto;');
+    const xpBarOuter = this.div(`width:${Math.round(100 * scale)}px;height:${Math.round(5 * scale)}px;background:rgba(0,0,0,0.4);border-radius:3px;overflow:hidden;margin-top:2px;margin-left:auto;`);
     this.xpBarFill = this.div('height:100%;width:0%;background:linear-gradient(90deg,#6688ff,#aaccff);border-radius:3px;transition:width 0.2s;');
     xpBarOuter.appendChild(this.xpBarFill);
     topRight.appendChild(xpBarOuter);
@@ -174,36 +198,36 @@ export class HUD {
 
     // Hotspot indicator
     this.hotspotIndicator = this.div(
-      'position:absolute;top:100px;left:50%;transform:translateX(-50%);' +
-      'font-size:14px;font-weight:bold;color:#ff8800;letter-spacing:2px;' +
-      'text-shadow:0 0 10px #ff6600;display:none;',
+      `position:absolute;top:${Math.round(80 * scale)}px;left:50%;transform:translateX(-50%);` +
+      `font-size:${Math.round(12 * scale)}px;font-weight:bold;color:#ff8800;letter-spacing:2px;` +
+      `text-shadow:${stroke},0 0 8px #ff6600;display:none;`,
     );
     this.hotspotIndicator.textContent = 'HOTSPOT ZONE';
     this.container.appendChild(this.hotspotIndicator);
 
     // Boost indicator
     this.boostIndicator = this.div(
-      'position:absolute;top:35%;left:50%;transform:translateX(-50%);' +
-      'font-size:16px;font-weight:bold;color:#44ddff;letter-spacing:2px;' +
-      'text-shadow:0 0 8px #44ddff;display:none;',
+      `position:absolute;top:35%;left:50%;transform:translateX(-50%);` +
+      `font-size:${Math.round(14 * scale)}px;font-weight:bold;color:#44ddff;letter-spacing:2px;` +
+      `text-shadow:${stroke},0 0 6px #44ddff;display:none;`,
     );
     this.boostIndicator.textContent = 'BOOST!';
     this.container.appendChild(this.boostIndicator);
 
     // Braking indicator
     this.brakeIndicator = this.div(
-      'position:absolute;top:35%;left:50%;transform:translateX(-50%);' +
-      'font-size:16px;font-weight:bold;color:#ffaa44;letter-spacing:2px;' +
-      'text-shadow:0 0 8px #ffaa44;display:none;',
+      `position:absolute;top:35%;left:50%;transform:translateX(-50%);` +
+      `font-size:${Math.round(14 * scale)}px;font-weight:bold;color:#ffaa44;letter-spacing:2px;` +
+      `text-shadow:${stroke},0 0 6px #ffaa44;display:none;`,
     );
     this.brakeIndicator.textContent = 'BRAKING';
     this.container.appendChild(this.brakeIndicator);
 
     // Dive bomb indicator
     this.diveBombIndicator = this.div(
-      'position:absolute;top:35%;left:50%;transform:translateX(-50%);' +
-      'font-size:24px;font-weight:bold;color:#ff4444;letter-spacing:4px;' +
-      'text-shadow:0 0 15px #ff0000,0 0 30px #ff0000;display:none;',
+      `position:absolute;top:35%;left:50%;transform:translateX(-50%);` +
+      `font-size:${Math.round(20 * scale)}px;font-weight:bold;color:#ff4444;letter-spacing:3px;` +
+      `text-shadow:${stroke},0 0 12px #ff0000;display:none;`,
     );
     this.diveBombIndicator.textContent = 'DIVE BOMB!';
     this.container.appendChild(this.diveBombIndicator);
@@ -230,12 +254,12 @@ export class HUD {
     );
     this.container.appendChild(this.streakCounter);
 
-    // Mission objective (top left, below heat)
+    // Mission objective (compact, top left below state)
     this.missionObjective = this.div(
-      'position:absolute;top:120px;left:16px;' +
-      'font-size:12px;color:#aaccff;text-shadow:1px 1px 3px rgba(0,0,0,0.8);' +
-      'background:rgba(0,0,0,0.5);padding:8px 12px;border-radius:6px;' +
-      'border-left:3px solid #6688ff;max-width:280px;display:none;',
+      `position:absolute;top:${Math.round(90 * scale)}px;left:${Math.round(10 * scale)}px;` +
+      `font-size:${Math.round(10 * scale)}px;color:#aaccff;text-shadow:${stroke};` +
+      `background:rgba(0,0,0,0.35);padding:6px 10px;border-radius:5px;` +
+      `border-left:2px solid #6688ff;max-width:${Math.round(220 * scale)}px;display:none;`,
     );
     this.container.appendChild(this.missionObjective);
 
@@ -248,31 +272,32 @@ export class HUD {
     );
     this.container.appendChild(this.missionCompleted);
 
-    // === BOTTOM LEFT: Cooldown ===
-    const bottomLeft = this.div('position:absolute;bottom:16px;left:16px;text-align:center;');
-    const cdLabel = this.div('font-size:10px;text-shadow:1px 1px 2px rgba(0,0,0,0.7);margin-bottom:3px;color:#aaa;');
+    // === BOTTOM LEFT: Cooldown (compact) ===
+    const cdSize = Math.round(40 * scale);
+    const bottomLeft = this.div(`position:absolute;bottom:${Math.round(12 * scale)}px;left:${Math.round(10 * scale)}px;text-align:center;`);
+    const cdLabel = this.div(`font-size:${Math.round(8 * scale)}px;text-shadow:${stroke};margin-bottom:2px;color:rgba(255,255,255,0.6);`);
     cdLabel.textContent = 'POOP';
     bottomLeft.appendChild(cdLabel);
-    const cdOuter = this.div('width:50px;height:50px;border-radius:50%;background:rgba(0,0,0,0.5);position:relative;overflow:hidden;');
+    const cdOuter = this.div(`width:${cdSize}px;height:${cdSize}px;border-radius:50%;background:rgba(0,0,0,0.4);position:relative;overflow:hidden;`);
     this.cooldownFill = this.div('position:absolute;bottom:0;left:0;width:100%;background:rgba(255,255,255,0.3);transition:height 0.05s;');
     cdOuter.appendChild(this.cooldownFill);
     bottomLeft.appendChild(cdOuter);
     this.container.appendChild(bottomLeft);
 
-    // === BOTTOM LEFT: Ability Charge (above poop cooldown) ===
-    this.abilityContainer = this.div('position:absolute;bottom:80px;left:16px;text-align:center;display:none;');
-    this.abilityLabel = this.div('font-size:9px;text-shadow:1px 1px 2px rgba(0,0,0,0.7);margin-bottom:3px;color:#aaa;max-width:60px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;');
+    // === BOTTOM LEFT: Ability Charge (above poop cooldown, compact) ===
+    this.abilityContainer = this.div(`position:absolute;bottom:${Math.round((20 + cdSize + 16) * scale)}px;left:${Math.round(10 * scale)}px;text-align:center;display:none;`);
+    this.abilityLabel = this.div(`font-size:${Math.round(8 * scale)}px;text-shadow:${stroke};margin-bottom:2px;color:rgba(255,255,255,0.6);max-width:${cdSize + 10}px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;`);
     this.abilityLabel.textContent = '[J]';
     this.abilityContainer.appendChild(this.abilityLabel);
 
-    const abilityOuter = this.div('width:50px;height:50px;border-radius:50%;background:rgba(0,0,0,0.5);position:relative;overflow:hidden;');
+    const abilityOuter = this.div(`width:${cdSize}px;height:${cdSize}px;border-radius:50%;background:rgba(0,0,0,0.4);position:relative;overflow:hidden;`);
     this.abilityChargeFill = this.div('position:absolute;bottom:0;left:0;width:100%;background:linear-gradient(0deg,#ff8800,#ffdd44);transition:height 0.1s;');
     abilityOuter.appendChild(this.abilityChargeFill);
     this.abilityActiveBar = this.div('position:absolute;top:0;left:0;width:100%;background:linear-gradient(180deg,#44ddff,#ffffff);transition:height 0.05s;display:none;');
     abilityOuter.appendChild(this.abilityActiveBar);
     this.abilityContainer.appendChild(abilityOuter);
 
-    this.abilityReadyIndicator = this.div('font-size:11px;font-weight:bold;color:#ffdd44;text-shadow:0 0 8px #ffaa00;margin-top:4px;display:none;');
+    this.abilityReadyIndicator = this.div(`font-size:${Math.round(9 * scale)}px;font-weight:bold;color:#fff;text-shadow:${stroke},0 0 8px #ffaa00;margin-top:3px;display:none;`);
     this.abilityReadyIndicator.textContent = 'READY!';
     this.abilityContainer.appendChild(this.abilityReadyIndicator);
     this.container.appendChild(this.abilityContainer);
@@ -290,21 +315,21 @@ export class HUD {
     );
     topRight.appendChild(this.murmTagEl);
 
-    // District indicator (bottom-left, above flock charge meter)
+    // District indicator (compact, bottom-left, above cooldown — hidden on mobile by default in collapsible HUD)
     this.districtEl = this.div(
-      'position:absolute;bottom:150px;left:16px;font-size:16px;font-weight:bold;color:rgba(255,255,255,0.9);text-shadow:2px 2px 4px rgba(0,0,0,0.9);padding:8px 16px;background:rgba(0,0,0,0.4);border-radius:8px;border:1px solid rgba(255,255,255,0.2);',
+      `position:absolute;bottom:${Math.round(140 * scale)}px;left:${Math.round(10 * scale)}px;font-size:${Math.round(12 * scale)}px;font-weight:bold;color:rgba(255,255,255,0.85);text-shadow:${stroke};padding:4px 10px;border-radius:6px;`,
     );
     this.container.appendChild(this.districtEl);
 
-    // Controls hint (only show on non-touch devices, above minimap)
+    // Controls hint — HIDDEN on touch devices (zero-noise mobile rule)
     this.controlsEl = this.div(
-      'position:absolute;bottom:220px;right:16px;font-size:11px;color:rgba(255,255,255,0.6);text-shadow:1px 1px 2px rgba(0,0,0,0.7);line-height:1.8;text-align:right;transition:opacity 2s;',
+      `position:absolute;bottom:100px;right:16px;font-size:${Math.round(10 * scale)}px;color:rgba(255,255,255,0.5);text-shadow:${stroke};line-height:1.6;text-align:right;transition:opacity 2s;`,
     );
     if (!isTouchDevice) {
       this.controlsEl.innerHTML =
-        'W — Pitch Up / Walk<br>S — Brake / Walk Back<br>A/D — Turn<br>SPACE — Ascend / Take Off<br>CTRL — Descend<br>CLICK — Poop<br>T — Boost<br>E — Bank<br>1-4 — Emotes';
+        'W — Forward / Walk<br>S — Brake / Walk Back<br>A/D — Turn<br>SPACE — Ascend<br>CTRL — Fast Descend<br>SHIFT — Slow Descend<br>CAPS — Bomber Mode<br>CLICK — Poop<br>T — Boost<br>E — Bank';
       this.container.appendChild(this.controlsEl);
-      setTimeout(() => { this.controlsEl.style.opacity = '0'; }, 10000);
+      setTimeout(() => { this.controlsEl.style.opacity = '0'; }, 8000);
     }
 
     // === ALTITUDE WARNING ===
@@ -370,53 +395,75 @@ export class HUD {
     const label = playerState.stateLabel;
     const isWalking = bird.controller.isGrounded && playerState.state === 'NORMAL';
     const displayLabel = isWalking ? 'WALKING' : label;
-    this.stateEl.textContent = displayLabel;
-    if (displayLabel === 'DRIVING') this.stateEl.style.color = '#44ddff';
-    else if (displayLabel === 'WALKING') this.stateEl.style.color = '#88cc88';
-    else if (label === 'SHIELDED') this.stateEl.style.color = '#44ddff';
-    else if (label === 'GROUNDED' || label === 'RESPAWNING') this.stateEl.style.color = '#ff4444';
-    else if (label === 'SANCTUARY' || label === 'BANKING') this.stateEl.style.color = '#44ffaa';
-    else this.stateEl.style.color = '#ffffff';
+    if (this._prevState !== displayLabel) {
+      this._prevState = displayLabel;
+      this.stateEl.textContent = displayLabel;
+    }
+    const stateColor = displayLabel === 'DRIVING' ? '#44ddff'
+      : displayLabel === 'WALKING' ? '#88cc88'
+      : label === 'SHIELDED' ? '#44ddff'
+      : (label === 'GROUNDED' || label === 'RESPAWNING') ? '#ff4444'
+      : (label === 'SANCTUARY' || label === 'BANKING') ? '#44ffaa'
+      : '#ffffff';
+    if (this._prevStateColor !== stateColor) {
+      this._prevStateColor = stateColor;
+      this.stateEl.style.color = stateColor;
+    }
 
     // Multiplier
-    if (score.multiplier > 1) {
-      this.multiplierEl.textContent = `x${score.multiplier.toFixed(1)}`;
-      this.multiplierEl.style.color = '#ffdd44';
-    } else {
-      this.multiplierEl.textContent = '';
+    const multText = score.multiplier > 1 ? `x${score.multiplier.toFixed(1)}` : '';
+    if (this._prevMultiplier !== multText) {
+      this._prevMultiplier = multText;
+      this.multiplierEl.textContent = multText;
+      if (multText) this.multiplierEl.style.color = '#fff';
     }
 
     // Coins
-    this.coinsEl.textContent = `${score.coins}`;
-    this.coinsEl.style.color = '#ffffff';
+    const coinsText = `${score.coins}`;
+    if (this._prevCoins !== coinsText) {
+      this._prevCoins = coinsText;
+      this.coinsEl.textContent = coinsText;
+    }
 
-    if (score.bankedCoins > 0) {
-      this.bankedEl.textContent = `BANKED: ${score.bankedCoins}`;
-      this.bankedEl.style.display = 'block';
-    } else {
-      this.bankedEl.style.display = 'none';
+    const bankedText = score.bankedCoins > 0 ? `BANKED: ${score.bankedCoins}` : '';
+    if (this._prevBanked !== bankedText) {
+      this._prevBanked = bankedText;
+      if (bankedText) {
+        this.bankedEl.textContent = bankedText;
+        this.bankedEl.style.display = 'block';
+      } else {
+        this.bankedEl.style.display = 'none';
+      }
     }
 
     // Secondary currencies
     const totalWorms = score.totalWorms + progression.worms;
     const feathers = progression.feathers;
     const goldenEggs = progression.goldenEggs;
-    this.wormsEl.textContent = totalWorms > 0 ? `🪱 ${totalWorms}` : '';
-    this.feathersEl.textContent = feathers > 0 ? `🪶 ${feathers}` : '';
-    this.goldenEggsEl.textContent = goldenEggs > 0 ? `🥚 ${goldenEggs}` : '';
+    const wormsText = totalWorms > 0 ? `🪱 ${totalWorms}` : '';
+    if (this._prevWorms !== wormsText) { this._prevWorms = wormsText; this.wormsEl.textContent = wormsText; }
+    const feathersText = feathers > 0 ? `🪶 ${feathers}` : '';
+    if (this._prevFeathers !== feathersText) { this._prevFeathers = feathersText; this.feathersEl.textContent = feathersText; }
+    const eggsText = goldenEggs > 0 ? `🥚 ${goldenEggs}` : '';
+    if (this._prevGoldenEggs !== eggsText) { this._prevGoldenEggs = eggsText; this.goldenEggsEl.textContent = eggsText; }
 
     // Level & XP
-    this.levelEl.textContent = `LVL ${progression.level}`;
-    this.xpEl.textContent = `XP ${progression.xp}`;
-    this.xpBarFill.style.width = `${progression.xpProgress * 100}%`;
+    const lvlText = `LVL ${progression.level}`;
+    if (this._prevLevel !== lvlText) { this._prevLevel = lvlText; this.levelEl.textContent = lvlText; }
+    const xpText = `XP ${progression.xp}`;
+    if (this._prevXp !== xpText) { this._prevXp = xpText; this.xpEl.textContent = xpText; }
+    const xpWidth = `${progression.xpProgress * 100}%`;
+    if (this._prevXpWidth !== xpWidth) { this._prevXpWidth = xpWidth; this.xpBarFill.style.width = xpWidth; }
 
     // Banking channel
+    const bankState = playerState.state === 'BANKING' ? 'show' : 'hide';
+    if (this._prevBankChannel !== bankState) {
+      this._prevBankChannel = bankState;
+      this.bankChannelEl.style.display = bankState === 'show' ? 'block' : 'none';
+    }
     if (playerState.state === 'BANKING') {
-      this.bankChannelEl.style.display = 'block';
       const circ = 2 * Math.PI * 34;
       this.bankChannelFill.setAttribute('stroke-dashoffset', `${circ * (1 - banking.progress)}`);
-    } else {
-      this.bankChannelEl.style.display = 'none';
     }
 
     // Grounded overlay with countdown
@@ -435,22 +482,33 @@ export class HUD {
     }
 
     // Hotspot
-    this.hotspotIndicator.style.display = inHotspot ? 'block' : 'none';
+    if (this._prevHotspot !== inHotspot) {
+      this._prevHotspot = inHotspot;
+      this.hotspotIndicator.style.display = inHotspot ? 'block' : 'none';
+    }
 
     // Boost & Brake & Dive Bomb indicators (mutually exclusive position)
-    const isBombing = bird.controller.isBraking && !bird.controller.isGrounded && !bird.controller.isDiving;
+    const isBombing = bird.controller.isBomberMode && !bird.controller.isGrounded && !bird.controller.isDiving;
     this.boostIndicator.style.display = bird.controller.isBoosting ? 'block' : 'none';
-    this.brakeIndicator.style.display = (!bird.controller.isBoosting && bird.controller.isBraking) ? 'block' : 'none';
+    this.brakeIndicator.style.display = (!bird.controller.isBoosting && (bird.controller.isBraking || isBombing)) ? 'block' : 'none';
     this.brakeIndicator.textContent = isBombing ? 'BOMBING RUN' : 'BRAKING';
     this.diveBombIndicator.style.display = bird.controller.isDiveBombing ? 'block' : 'none';
 
     // Alt/speed
     const alt = Math.round(bird.controller.position.y);
     const spd = Math.round(bird.controller.forwardSpeed);
-    this.altSpeedEl.textContent = `ALT ${alt}m  SPD ${spd}`;
+    const altSpeedText = `ALT ${alt}m  SPD ${spd}`;
+    if (this._prevAltSpeed !== altSpeedText) {
+      this._prevAltSpeed = altSpeedText;
+      this.altSpeedEl.textContent = altSpeedText;
+    }
 
     // Cooldown
-    this.cooldownFill.style.height = `${poopManager.cooldownProgress * 100}%`;
+    const cdHeight = `${poopManager.cooldownProgress * 100}%`;
+    if (this._prevCooldownHeight !== cdHeight) {
+      this._prevCooldownHeight = cdHeight;
+      this.cooldownFill.style.height = cdHeight;
+    }
 
     // Ability charge meter
     if (abilityManager) {
@@ -488,11 +546,10 @@ export class HUD {
     // District indicator
     if (city) {
       const district = city.getDistrict(bird.controller.position);
-      if (district) {
-        this.districtEl.textContent = `📍 ${district.name}`;
-        this.districtEl.style.display = 'block';
-      } else {
-        this.districtEl.textContent = '📍 Open Sky';
+      const districtName = district ? `📍 ${district.name}` : '📍 Open Sky';
+      if (this._prevDistrict !== districtName) {
+        this._prevDistrict = districtName;
+        this.districtEl.textContent = districtName;
         this.districtEl.style.display = 'block';
       }
     }

@@ -34,9 +34,18 @@ export class CollisionSystem {
   // PHASE 4: Spatial grid for O(n) collision detection instead of O(n²)
   private npcGrid = new SpatialGrid<NPC>(50);
 
+  // Reusable scratch vectors to avoid per-frame allocations
+  private _tmpHitPos = new THREE.Vector3();
+  private _tmpImpactPos = new THREE.Vector3();
+
+  // Reusable scatter result to avoid per-frame allocation
+  private _scatterResult: ScatterResult = { npcs: [], centerPos: new THREE.Vector3() };
+
   /** Detect bird body colliding with NPCs — scatter them like bowling pins */
   checkBirdScatter(bird: Bird, npcManager: NPCManager, vfx?: VFXSystem): ScatterResult {
-    const result: ScatterResult = { npcs: [], centerPos: new THREE.Vector3() };
+    const result = this._scatterResult;
+    result.npcs.length = 0;
+    result.centerPos.set(0, 0, 0);
     const birdPos = bird.controller.position;
     const birdSpeed = bird.controller.forwardSpeed;
     const birdForward = bird.controller.getForward();
@@ -109,10 +118,12 @@ export class CollisionSystem {
         const hitRadiusSq = (npc.boundingRadius + 0.3) ** 2;
 
         if (distSq < hitRadiusSq) {
-          const hitPos = npc.mesh.position.clone();
-          hitPos.y += 2;
+          this._tmpHitPos.copy(npc.mesh.position);
+          this._tmpHitPos.y += 2;
+          const hitPos = this._tmpHitPos;
 
-          const impactPos = poop.mesh.position.clone();
+          this._tmpImpactPos.copy(poop.mesh.position);
+          const impactPos = this._tmpImpactPos;
           const hitResult = npc.onHit();
           const { coins, heat, multiplierBonus = 0 } = hitResult;
           const npcType = npc.npcType;

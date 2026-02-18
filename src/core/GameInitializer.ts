@@ -33,7 +33,7 @@ export function createScene(): THREE.Scene {
   // Sky blue background — kept as fallback behind the Sky shader mesh
   scene.background = new THREE.Color(0x87ceeb);
   // Fog for distance culling — fades distant geometry to reduce overdraw
-  scene.fog = new THREE.Fog(0x87ceeb, 400, 900);
+  scene.fog = new THREE.Fog(0x87ceeb, 260, 720);
   return scene;
 }
 

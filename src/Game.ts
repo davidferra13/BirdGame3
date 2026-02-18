@@ -147,6 +147,10 @@ export class Game {
   private projScreenMatrix = new THREE.Matrix4();
   private _cullSphere = new THREE.Sphere();
 
+  // Reusable scratch vectors to avoid per-frame allocations
+  private _tmpVec3A = new THREE.Vector3();
+  private _tmpVec3B = new THREE.Vector3();
+
   constructor() {
     this.renderer = createRenderer();
     this.scene = createScene();
@@ -306,9 +310,6 @@ export class Game {
     const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
     this.minimap = new Minimap({
       worldSize: WORLD.CITY_SIZE,
-      position: isTouchDevice
-        ? { top: 150, right: 20 }
-        : { bottom: 20, right: 20 },
     });
     this.minimap.setSanctuaryPosition(SANCTUARY.POSITION);
     this.leaderbird = new LeaderBird();
@@ -359,8 +360,7 @@ export class Game {
     this.vfx.createSanctuaryShimmer(12, 1, SANCTUARY.POSITION);
 
     // Initialize multiplayer if enabled
-    const wsUrl = import.meta.env.VITE_WS_URL
-      || `ws://${window.location.hostname}:${import.meta.env.VITE_WS_PORT || '3001'}`;
+    const wsUrl = this.resolveMultiplayerUrl();
     if (wsUrl && this.multiplayerEnabled) {
       this.initMultiplayer(wsUrl);
     }
@@ -625,16 +625,16 @@ export class Game {
       if (count >= NPC_CONFIG.SCATTER_CLUSTER_THRESHOLD) {
         scatterCoins += NPC_CONFIG.SCATTER_CLUSTER_BONUS;
         const label = count >= 5 ? 'BOWLING STRIKE!' : 'SCATTER!';
-        const popupPos = scatterResult.centerPos.clone();
-        popupPos.y += 3;
-        this.coinPopups.spawn(popupPos, scatterCoins, 1.0, label);
+        this._tmpVec3A.copy(scatterResult.centerPos);
+        this._tmpVec3A.y += 3;
+        this.coinPopups.spawn(this._tmpVec3A, scatterCoins, 1.0, label);
 
         // Worm reward for scatter strikes
         this.scoreSystem.worms += ECONOMY.WORMS_PER_SCATTER_STRIKE;
       } else {
-        const popupPos = scatterResult.centerPos.clone();
-        popupPos.y += 2;
-        this.coinPopups.spawn(popupPos, scatterCoins, 1.0);
+        this._tmpVec3A.copy(scatterResult.centerPos);
+        this._tmpVec3A.y += 2;
+        this.coinPopups.spawn(this._tmpVec3A, scatterCoins, 1.0);
       }
 
       this.scoreSystem.coins += scatterCoins;
@@ -752,9 +752,11 @@ export class Game {
           // Achievement checks after banking
           this.checkAchievements();
 
-          // Save game state and leaderbird run after every bank
-          this.saveState();
-          this.saveLeaderBirdRun();
+          // Save game state and leaderbird run after every bank.
+          void (async () => {
+            await this.saveState();
+            this.saveLeaderBirdRun();
+          })();
         }
         this.playerState.completeBanking();
         this.bankingSystem.reset();
@@ -791,8 +793,8 @@ export class Game {
     this.cameraController.camera.position.add(shakeOffset);
     // Apply slight zoom-in during impact cam
     if (impactZoom > 0) {
-      const zoomDir = new THREE.Vector3().subVectors(this.bird.controller.position, this.cameraController.camera.position).normalize();
-      this.cameraController.camera.position.addScaledVector(zoomDir, impactZoom);
+      this._tmpVec3A.subVectors(this.bird.controller.position, this.cameraController.camera.position).normalize();
+      this.cameraController.camera.position.addScaledVector(this._tmpVec3A, impactZoom);
     }
 
     // Cosmetics trail
@@ -829,9 +831,9 @@ export class Game {
       if (roundState.mode === 'poop-cover' && roundState.phase === 'active') {
         const statuePos = roundState.modeData?.statuePosition;
         if (statuePos) {
-          const statueVec = new THREE.Vector3(statuePos.x, statuePos.y, statuePos.z);
+          this._tmpVec3A.set(statuePos.x, statuePos.y, statuePos.z);
           const statueHits = this.collisionSystem.checkPvPStatueHits(
-            poops, 'local', statueVec,
+            poops, 'local', this._tmpVec3A,
           );
           for (const hit of statueHits) {
             this.pvpManager.onPoopHitStatue(hit.playerId, hit.accuracy, hit.position);
@@ -1041,8 +1043,9 @@ export class Game {
             // Apply height bonus to coin value before scoring
             const boostedCoins = Math.floor(coins * heightBonus);
             this.scoreSystem.onHitWithValues(boostedCoins, heat, npcType);
-            const popupPos = throwPos.clone();
-            popupPos.y += 2;
+            this._tmpVec3A.copy(throwPos);
+            this._tmpVec3A.y += 2;
+            const popupPos = this._tmpVec3A;
             const label = heightBonus > 1.01 ? `HEIGHT DROP x${heightBonus.toFixed(1)}` : undefined;
             this.coinPopups.spawn(popupPos, this.scoreSystem.lastHitPoints, this.scoreSystem.lastHitMultiplier, label);
             this.vfx.spawnBankingBurst(throwPos, 15);
@@ -1052,8 +1055,8 @@ export class Game {
 
             // PiP drop camera: show the NPC falling from dramatic heights
             if (throwPos.y >= DropCamera.MIN_HEIGHT && npcToTrack) {
-              const throwDir = this.bird.controller.getForward().clone();
-              this.dropCamera.activate(npcToTrack, throwDir, throwPos.y);
+              this._tmpVec3B.copy(this.bird.controller.getForward());
+              this.dropCamera.activate(npcToTrack, this._tmpVec3B, throwPos.y);
             }
           }
         }
@@ -1142,7 +1145,7 @@ export class Game {
       this.bird.controller.position.z += Math.sin(wind.direction) * wind.strength * dt;
     }
 
-    this.clouds.update(dt);
+    this.clouds.update(dt, this.bird.controller.position);
     this.gameElapsed += dt;
     this.ocean.update(this.gameElapsed);
     this.airTraffic.update(dt, this.bird.controller.position, this.scoreSystem.isWanted);
@@ -1155,9 +1158,9 @@ export class Game {
     this.vehicleSystem.checkPoopHits(activePoops, (result) => {
       this.scoreSystem.onHitWithValues(result.coins, result.heat, 'tourist');
       this.scoreSystem.worms += ECONOMY.WORMS_PER_DRIVING_HIT;
-      const popupPos = result.position.clone();
-      popupPos.y += 3;
-      this.coinPopups.spawn(popupPos, result.coins, 1.0);
+      this._tmpVec3A.copy(result.position);
+      this._tmpVec3A.y += 3;
+      this.coinPopups.spawn(this._tmpVec3A, result.coins, 1.0);
       this.audio.playHit();
       this.streetLife.scarePigeonsNear(result.position);
       this.abilityManager.addCharge(ABILITY_CHARGE.PER_VEHICLE_HIT);
@@ -1165,9 +1168,9 @@ export class Game {
 
     this.streetLife.checkPoopHits(activePoops, (result) => {
       this.scoreSystem.onHitWithValues(result.coins, result.heat, 'tourist');
-      const popupPos = result.position.clone();
-      popupPos.y += 4;
-      this.coinPopups.spawn(popupPos, result.coins, 1.2);
+      this._tmpVec3A.copy(result.position);
+      this._tmpVec3A.y += 4;
+      this.coinPopups.spawn(this._tmpVec3A, result.coins, 1.2);
       this.audio.playHit();
       this.abilityManager.addCharge(ABILITY_CHARGE.PER_VEHICLE_HIT);
     });
@@ -1175,9 +1178,9 @@ export class Game {
     this.airTraffic.checkDroneHits(activePoops, (result) => {
       this.scoreSystem.onHitWithValues(result.coins, result.heat, 'tourist');
       this.scoreSystem.worms += ECONOMY.WORMS_PER_DRONE;
-      const popupPos = result.position.clone();
-      popupPos.y += 2;
-      this.coinPopups.spawn(popupPos, result.coins, 1.5);
+      this._tmpVec3A.copy(result.position);
+      this._tmpVec3A.y += 2;
+      this.coinPopups.spawn(this._tmpVec3A, result.coins, 1.5);
       this.audio.playHit();
       this.abilityManager.addCharge(ABILITY_CHARGE.PER_VEHICLE_HIT);
     });
@@ -1232,23 +1235,23 @@ export class Game {
 
       this.vehicleSystem.checkPoopHits(abilityPoops, (result) => {
         this.scoreSystem.onHitWithValues(Math.round(result.coins * scale), result.heat, 'tourist');
-        const p = result.position.clone(); p.y += 3;
-        this.coinPopups.spawn(p, Math.round(result.coins * scale), 1.0);
+        this._tmpVec3A.copy(result.position); this._tmpVec3A.y += 3;
+        this.coinPopups.spawn(this._tmpVec3A, Math.round(result.coins * scale), 1.0);
         this.audio.playHit();
         this.abilityManager.addCharge(ABILITY_CHARGE.PER_VEHICLE_HIT * 0.5);
       });
 
       this.streetLife.checkPoopHits(abilityPoops, (result) => {
         this.scoreSystem.onHitWithValues(Math.round(result.coins * scale), result.heat, 'tourist');
-        const p = result.position.clone(); p.y += 4;
-        this.coinPopups.spawn(p, Math.round(result.coins * scale), 1.0);
+        this._tmpVec3A.copy(result.position); this._tmpVec3A.y += 4;
+        this.coinPopups.spawn(this._tmpVec3A, Math.round(result.coins * scale), 1.0);
         this.audio.playHit();
       });
 
       this.airTraffic.checkDroneHits(abilityPoops, (result) => {
         this.scoreSystem.onHitWithValues(Math.round(result.coins * scale), result.heat, 'tourist');
-        const p = result.position.clone(); p.y += 2;
-        this.coinPopups.spawn(p, Math.round(result.coins * scale), 1.0);
+        this._tmpVec3A.copy(result.position); this._tmpVec3A.y += 2;
+        this.coinPopups.spawn(this._tmpVec3A, Math.round(result.coins * scale), 1.0);
         this.audio.playHit();
       });
 
@@ -1258,8 +1261,10 @@ export class Game {
           if (npc.isHit || npc.isGrabbed || npc.shouldDespawn) continue;
           const distSq = poopPos.distanceToSquared(npc.mesh.position);
           if (distSq < (npc.boundingRadius + 0.3) ** 2) {
-            const hitPos = npc.mesh.position.clone(); hitPos.y += 2;
-            const impactPos = poop.mesh.position.clone();
+            this._tmpVec3A.copy(npc.mesh.position); this._tmpVec3A.y += 2;
+            const hitPos = this._tmpVec3A;
+            this._tmpVec3B.copy(poop.mesh.position);
+            const impactPos = this._tmpVec3B;
             const hitResult = npc.onHit();
             poop.kill();
             this.poopManager.spawnImpact(impactPos);
@@ -1339,18 +1344,21 @@ export class Game {
     this.frustum.setFromProjectionMatrix(this.projScreenMatrix);
 
     const SHADOW_DISTANCE_SQ = 200 * 200;
+    const BUILDING_VISIBLE_DISTANCE_SQ = 650 * 650;
     const playerPos = this.bird.controller.position;
 
     for (const building of this.city.buildings) {
       if (building.mesh) {
         this._cullSphere.set(building.mesh.position, building.cullRadius);
-        building.mesh.visible = this.frustum.intersectsSphere(this._cullSphere);
+        const dx = building.mesh.position.x - playerPos.x;
+        const dy = building.mesh.position.y - playerPos.y;
+        const dz = building.mesh.position.z - playerPos.z;
+        const distSq = dx * dx + dy * dy + dz * dz;
+        building.mesh.visible =
+          distSq < BUILDING_VISIBLE_DISTANCE_SQ &&
+          this.frustum.intersectsSphere(this._cullSphere);
 
         if (building.mesh.visible) {
-          const dx = building.mesh.position.x - playerPos.x;
-          const dy = building.mesh.position.y - playerPos.y;
-          const dz = building.mesh.position.z - playerPos.z;
-          const distSq = dx * dx + dy * dy + dz * dz;
           building.mesh.castShadow = distSq < SHADOW_DISTANCE_SQ;
         } else {
           building.mesh.castShadow = false;
@@ -1552,28 +1560,28 @@ export class Game {
   render(): void {
     const renderer = this.renderer;
 
-    if (this.dropCamera.isActive()) {
+    // Always render main camera
+    renderer.render(this.scene, this.cameraController.camera);
+
+    // PiP drop camera — throttled to every 3rd frame to avoid doubling GPU cost
+    if (this.dropCamera.shouldRenderThisFrame()) {
       const fullWidth = window.innerWidth;
       const fullHeight = window.innerHeight;
-
-      // 1. Main camera (full screen)
-      renderer.setViewport(0, 0, fullWidth, fullHeight);
-      renderer.setScissor(0, 0, fullWidth, fullHeight);
-      renderer.setScissorTest(false);
-      renderer.render(this.scene, this.cameraController.camera);
-
-      // 2. PiP drop camera (small corner viewport)
       const vp = this.dropCamera.getViewport();
+
+      // Disable shadows for the PiP pass (huge perf save)
+      const shadowsWereEnabled = renderer.shadowMap.enabled;
+      renderer.shadowMap.enabled = false;
+
       renderer.setScissorTest(true);
       renderer.setScissor(vp.x, vp.y, vp.width, vp.height);
       renderer.setViewport(vp.x, vp.y, vp.width, vp.height);
       renderer.render(this.scene, this.dropCamera.camera);
 
-      // 3. Restore full viewport
+      // Restore
+      renderer.shadowMap.enabled = shadowsWereEnabled;
       renderer.setScissorTest(false);
       renderer.setViewport(0, 0, fullWidth, fullHeight);
-    } else {
-      renderer.render(this.scene, this.cameraController.camera);
     }
   }
 
@@ -1589,8 +1597,8 @@ export class Game {
 
   enableMultiplayer(): void {
     this.multiplayerEnabled = true;
-    const wsUrl = import.meta.env.VITE_WS_URL
-      || `ws://${window.location.hostname}:${import.meta.env.VITE_WS_PORT || '3001'}`;
+    const wsUrl = this.resolveMultiplayerUrl();
+    if (!wsUrl) return;
     this.initMultiplayer(wsUrl);
   }
 
@@ -1735,6 +1743,9 @@ export class Game {
     // Remove event listeners
     window.removeEventListener('resize', this.onResize);
 
+    // Clean up input manager listeners
+    this.input.dispose();
+
     // Disconnect multiplayer
     if (this.multiplayer) {
       this.multiplayer.disconnect();
@@ -1792,6 +1803,28 @@ export class Game {
   }
 
   private resizeTimeout: any = null;
+
+  /**
+   * Resolve WebSocket URL for multiplayer.
+   * - Production requires VITE_WS_URL so clients connect to a real game server.
+   * - Development falls back to same-host WS port for local testing.
+   */
+  private resolveMultiplayerUrl(): string | null {
+    const envUrl = (import.meta.env.VITE_WS_URL as string | undefined)?.trim();
+    if (envUrl) return envUrl;
+
+    const host = window.location.hostname;
+    const isLocalHost = host === 'localhost' || host === '127.0.0.1';
+    if (!isLocalHost) {
+      console.warn('[multiplayer] VITE_WS_URL is not set for non-local host. Multiplayer disabled.');
+      return null;
+    }
+
+    const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+    const port = (import.meta.env.VITE_WS_PORT as string | undefined)?.trim() || '3001';
+    return `${protocol}://${window.location.hostname}:${port}`;
+  }
+
   private onResize = (): void => {
     if (this.resizeTimeout) clearTimeout(this.resizeTimeout);
     this.resizeTimeout = setTimeout(() => {
@@ -1802,41 +1835,51 @@ export class Game {
     }, 100);
   };
 
-  private createFPSCounter(): void {
-    // Only show FPS counter in development mode
-    if (import.meta.env.PROD) return;
+  private devModeVisible = false;
+  private devTapCount = 0;
+  private devTapTimer = 0;
 
+  private createFPSCounter(): void {
+    // Create the FPS counter (hidden by default — toggled via Dev Mode gesture)
     this.fpsCounter = document.createElement('div');
-    this.fpsCounter.style.position = 'fixed';
-    this.fpsCounter.style.top = '10px';
-    this.fpsCounter.style.left = '10px';
-    this.fpsCounter.style.padding = '8px 12px';
-    this.fpsCounter.style.background = 'rgba(0, 0, 0, 0.7)';
-    this.fpsCounter.style.color = '#0f0';
-    this.fpsCounter.style.fontFamily = 'monospace';
-    this.fpsCounter.style.fontSize = '14px';
-    this.fpsCounter.style.borderRadius = '4px';
-    this.fpsCounter.style.zIndex = '10000';
+    this.fpsCounter.style.cssText =
+      'position:fixed;top:10px;left:10px;padding:6px 10px;background:rgba(0,0,0,0.7);' +
+      'color:#0f0;font-family:monospace;font-size:12px;border-radius:4px;z-index:10000;' +
+      'display:none;pointer-events:none;';
     this.fpsCounter.textContent = 'FPS: --';
     document.body.appendChild(this.fpsCounter);
+
+    // Dev Mode toggle: triple-tap top-left corner (100x100px zone)
+    const devZone = document.createElement('div');
+    devZone.style.cssText =
+      'position:fixed;top:0;left:0;width:100px;height:100px;z-index:10001;pointer-events:auto;opacity:0;';
+    devZone.addEventListener('click', () => {
+      this.devTapCount++;
+      clearTimeout(this.devTapTimer as any);
+      this.devTapTimer = window.setTimeout(() => { this.devTapCount = 0; }, 600);
+      if (this.devTapCount >= 3) {
+        this.devModeVisible = !this.devModeVisible;
+        if (this.fpsCounter) {
+          this.fpsCounter.style.display = this.devModeVisible ? 'block' : 'none';
+        }
+        this.devTapCount = 0;
+      }
+    });
+    document.body.appendChild(devZone);
   }
 
   private updateFPS(dt: number): void {
     this.frameCount++;
     this.lastFPSUpdate += dt;
 
-    if (this.lastFPSUpdate >= 1.0) {  // Update every 1 second (was 0.5)
+    if (this.lastFPSUpdate >= 1.0) {
       const fps = Math.round(this.frameCount / this.lastFPSUpdate);
-      if (this.fpsCounter) {
+      if (this.fpsCounter && this.devModeVisible) {
         const color = fps >= 50 ? '#0f0' : fps >= 30 ? '#ff0' : '#f00';
         const info = this.renderer.info;
-
         this.fpsCounter.style.color = color;
-        this.fpsCounter.innerHTML = `
-          FPS: ${fps}<br>
-          Calls: ${info.render.calls}<br>
-          Tris: ${(info.render.triangles / 1000).toFixed(1)}k
-        `;
+        this.fpsCounter.innerHTML =
+          `FPS: ${fps}<br>Calls: ${info.render.calls}<br>Tris: ${(info.render.triangles / 1000).toFixed(1)}k`;
       }
       this.frameCount = 0;
       this.lastFPSUpdate = 0;
@@ -1874,10 +1917,10 @@ export class Game {
   }
 
   /** Save current game state to localStorage via main.ts */
-  private saveState(): void {
+  private async saveState(): Promise<void> {
     const saveFn = (window as any).__saveGameState;
     if (typeof saveFn === 'function') {
-      saveFn();
+      await saveFn({ reason: 'banking' });
     }
   }
 

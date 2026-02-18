@@ -101,8 +101,8 @@ export class AssetLoader {
         const toRemove: THREE.Object3D[] = [];
         result.traverse((child) => {
           if (child instanceof THREE.Mesh) {
-            // CRITICAL: Disable frustum culling to prevent boundingSphere errors
-            child.frustumCulled = false;
+            // Keep frustum culling enabled so off-screen meshes are skipped.
+            child.frustumCulled = true;
 
             // Mark meshes without geometry for removal
             if (!child.geometry) {
@@ -144,11 +144,10 @@ export class AssetLoader {
       this.gltfLoader.load(
         url,
         (gltf: GLTF) => {
-          // Ensure all geometries have bounding volumes computed and disable frustum culling
+          // Ensure all geometries have bounding volumes computed and keep frustum culling on
           gltf.scene.traverse((child) => {
             if (child instanceof THREE.Mesh) {
-              // CRITICAL: Disable frustum culling to prevent boundingSphere errors
-              child.frustumCulled = false;
+              child.frustumCulled = true;
 
               if (child.geometry) {
                 if (!child.geometry.boundingSphere) {
@@ -188,8 +187,7 @@ export class AssetLoader {
             const toRemove: THREE.Object3D[] = [];
             result.traverse((child) => {
               if (child instanceof THREE.Mesh) {
-                // CRITICAL: Disable frustum culling to prevent boundingSphere errors
-                child.frustumCulled = false;
+                child.frustumCulled = true;
 
                 // Mark meshes without geometry for removal
                 if (!child.geometry) {
@@ -319,8 +317,7 @@ export class AssetLoader {
             const toRemove: THREE.Object3D[] = [];
             result.traverse((child) => {
               if (child instanceof THREE.Mesh) {
-                // CRITICAL: Disable frustum culling to prevent boundingSphere errors
-                child.frustumCulled = false;
+                child.frustumCulled = true;
 
                 // Mark meshes without geometry for removal
                 if (!child.geometry) {

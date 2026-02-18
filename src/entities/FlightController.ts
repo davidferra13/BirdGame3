@@ -4,6 +4,24 @@ import { clamp, moveToward, remap } from '../utils/MathUtils';
 import { InputManager } from '../core/InputManager';
 import { BuildingData } from '../world/City';
 
+// Reusable scratch objects — allocated once, reused every frame
+const _quat = new THREE.Quaternion();
+const _euler = new THREE.Euler(0, 0, 0, 'YXZ');
+const _forward = new THREE.Vector3();
+const _velocity = new THREE.Vector3();
+const _displacement = new THREE.Vector3();
+const _stepDisp = new THREE.Vector3();
+const _newPos = new THREE.Vector3();
+const _slidePos = new THREE.Vector3();
+const _collisionNormal = new THREE.Vector3();
+const _noCollision = { hasCollision: false, normal: new THREE.Vector3() };
+const _hitCollision = { hasCollision: true, normal: new THREE.Vector3() };
+const _slideVec = new THREE.Vector3();
+const _flipQuat = new THREE.Quaternion();
+const _flipAxis = new THREE.Vector3();
+const _corkscrewRoll = new THREE.Quaternion();
+const _corkscrewPitch = new THREE.Quaternion();
+
 export class FlightController {
   readonly position = new THREE.Vector3(0, 50, 0);
 
@@ -26,6 +44,7 @@ export class FlightController {
   isBoosting = false;
   boostJustActivated = false; // true for one frame on boost start
   isBraking = false;
+  isBomberMode = false;
   isGentleDescending = false;
   private boostCooldown = 0;
   private boostTimer = 0;
@@ -76,12 +95,13 @@ export class FlightController {
   update(dt: number, input: InputManager): void {
     const yawInput = input.getAxis('horizontal');
     const pitchInput = input.getAxis('vertical');
+    const forwardInput = input.isMoveForwardHeld() ? 1 : 0;
     const ascendInput = input.isAscending();
     const fastDescentInput = input.isFastDescending();
     const diveInput = input.isDive();
     const diveBombInput = input.isDiveBomb();
     const gentleDescentInput = input.isGentleDescending();
-    const brakeInput = pitchInput < 0;
+    const brakeInput = input.isBrakeHeld();
 
     // Ground / perch mode
     const rooftopY = this.getRooftopBelow();
@@ -102,6 +122,9 @@ export class FlightController {
     }
 
     this.isGrounded = false;
+    if (input.wasBomberModePressed()) {
+      this.isBomberMode = !this.isBomberMode;
+    }
     this.isDiving = fastDescentInput || diveInput;
     this.isDiveBombing = diveBombInput;
     this.isBraking = brakeInput && !this.isDiving;
@@ -230,12 +253,13 @@ export class FlightController {
     } else if (this.isBraking) {
       this.pitchAngle = moveToward(this.pitchAngle, 0, 2.0 * dt);
       targetPitchRate = 0;
-    } else if (pitchInput > 0) {
-      // W key: smooth pitch up
-      targetPitchRate = pitchInput * FLIGHT.PITCH_RATE;
     } else if (this.isGentleDescending) {
-      // B key: slight nose-down for visual feedback during gentle descent
+      // Precision descend takes priority over W pitch-up for better attack-run control.
       this.pitchAngle = moveToward(this.pitchAngle, FLIGHT.GENTLE_DESCENT_PITCH, 1.5 * dt);
+      targetPitchRate = 0;
+    } else if (pitchInput > 0) {
+      // W key: shallow climb bias so forward speed feels primary (Space remains main vertical control)
+      this.pitchAngle = moveToward(this.pitchAngle, FLIGHT.MAX_PITCH_UP * 0.35, 2.2 * dt);
       targetPitchRate = 0;
     } else {
       // No input: gentle auto-descent pitch
@@ -276,7 +300,7 @@ export class FlightController {
       // If already at or below brake speed, maintain current speed
     } else {
       const pitchSpeedMod = remap(this.pitchAngle, -0.8, 0.6, 10, -8);
-      let targetSpeed = FLIGHT.BASE_SPEED + pitchSpeedMod;
+      let targetSpeed = FLIGHT.BASE_SPEED + pitchSpeedMod + forwardInput * 12;
       if (this.isBoosting) targetSpeed *= FLIGHT.BOOST_MULTIPLIER;
 
       // Apply dive momentum boost
@@ -315,12 +339,11 @@ export class FlightController {
       }
     }
 
-    const quat = new THREE.Quaternion();
-    const euler = new THREE.Euler(this.pitchAngle, this.yawAngle, 0, 'YXZ');
-    quat.setFromEuler(euler);
+    _euler.set(this.pitchAngle, this.yawAngle, 0, 'YXZ');
+    _quat.setFromEuler(_euler);
 
-    const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(quat);
-    const velocity = forward.multiplyScalar(this.forwardSpeed);
+    _velocity.set(0, 0, -1).applyQuaternion(_quat).multiplyScalar(this.forwardSpeed);
+    const velocity = _velocity;
 
     // Ascend with Space (fast ramp-down to prevent overshoot)
     if (ascendInput) {
@@ -342,7 +365,7 @@ export class FlightController {
       velocity.y -= FLIGHT.FAST_DESCENT_SPEED * this.fastDescentRamp;
     }
 
-    // Gentle descent with B key (slow, controlled lowering)
+    // Gentle descent with precision-descend key (slow, controlled lowering)
     if (this.isGentleDescending) {
       this.gentleDescentRamp = moveToward(this.gentleDescentRamp, 1, dt / FLIGHT.GENTLE_DESCENT_RAMP_TIME);
     } else {
@@ -418,10 +441,10 @@ export class FlightController {
       velocity.y = Math.max(velocity.y, 0);
     }
 
-    const displacement = velocity.clone().multiplyScalar(dt);
+    _displacement.copy(velocity).multiplyScalar(dt);
 
     // COLLISION DETECTION: Swept substep collision to prevent tunneling through buildings
-    this.moveWithCollision(displacement);
+    this.moveWithCollision(_displacement);
 
     // Soft boundary push-back
     this.applySoftBoundary(dt);
@@ -431,6 +454,7 @@ export class FlightController {
     this.isGrounded = true;
     this.isDiving = false;
     this.isBraking = false;
+    this.isBomberMode = false;
     this.isPerched = floorY > FLIGHT.GROUND_ALTITUDE + 1;
     this.position.y = floorY;
     this.pitchAngle = 0;
@@ -455,23 +479,23 @@ export class FlightController {
     this.forwardSpeed = moveToward(this.forwardSpeed, targetSpeed, 20 * dt);
 
     if (this.forwardSpeed > 0.1) {
-      const quat = new THREE.Quaternion();
-      quat.setFromEuler(new THREE.Euler(0, this.yawAngle, 0, 'YXZ'));
-      const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(quat);
-      const walkDisplacement = fwd.multiplyScalar(this.forwardSpeed * this.walkDirection * dt);
+      _euler.set(0, this.yawAngle, 0, 'YXZ');
+      _quat.setFromEuler(_euler);
+      _forward.set(0, 0, -1).applyQuaternion(_quat);
+      _displacement.copy(_forward).multiplyScalar(this.forwardSpeed * this.walkDirection * dt);
 
       // Check collision before applying ground movement
-      const newPos = this.position.clone().add(walkDisplacement);
-      const collision = this.checkBuildingCollision(newPos);
+      _newPos.copy(this.position).add(_displacement);
+      const collision = this.checkBuildingCollision(_newPos);
       if (!collision.hasCollision) {
-        this.position.add(walkDisplacement);
+        this.position.add(_displacement);
       } else {
         // Try sliding along the wall
-        const slide = this.calculateSlideMovement(walkDisplacement, collision.normal);
-        const slidePos = this.position.clone().add(slide);
-        const slideCheck = this.checkBuildingCollision(slidePos);
+        this.calculateSlideMovement(_displacement, collision.normal, _slideVec);
+        _slidePos.copy(this.position).add(_slideVec);
+        const slideCheck = this.checkBuildingCollision(_slidePos);
         if (!slideCheck.hasCollision) {
-          this.position.add(slide);
+          this.position.add(_slideVec);
         }
         // else: blocked on all sides, just stop
       }
@@ -502,29 +526,29 @@ export class FlightController {
     if (totalDist < 0.0001) return;
 
     const numSteps = Math.max(1, Math.ceil(totalDist / SUBSTEP_SIZE));
-    const stepDisplacement = displacement.clone().divideScalar(numSteps);
+    _stepDisp.copy(displacement).divideScalar(numSteps);
 
     for (let i = 0; i < numSteps; i++) {
-      const newPosition = this.position.clone().add(stepDisplacement);
-      const collisionResult = this.checkBuildingCollision(newPosition);
+      _newPos.copy(this.position).add(_stepDisp);
+      const collisionResult = this.checkBuildingCollision(_newPos);
 
       if (collisionResult.hasCollision) {
         // Try sliding along the building surface
-        const slideDisplacement = this.calculateSlideMovement(stepDisplacement, collisionResult.normal);
-        const slidePosition = this.position.clone().add(slideDisplacement);
+        this.calculateSlideMovement(_stepDisp, collisionResult.normal, _slideVec);
+        _slidePos.copy(this.position).add(_slideVec);
 
-        const slideCheck = this.checkBuildingCollision(slidePosition);
+        const slideCheck = this.checkBuildingCollision(_slidePos);
         if (!slideCheck.hasCollision) {
-          this.position.copy(slidePosition);
-          this.totalDistanceFlown += slideDisplacement.length();
+          this.position.copy(_slidePos);
+          this.totalDistanceFlown += _slideVec.length();
         } else {
           // Can't move at all — reduce speed and stop stepping
           this.forwardSpeed *= 0.7;
           break;
         }
       } else {
-        this.position.add(stepDisplacement);
-        this.totalDistanceFlown += stepDisplacement.length();
+        this.position.add(_stepDisp);
+        this.totalDistanceFlown += _stepDisp.length();
       }
     }
 
@@ -627,36 +651,36 @@ export class FlightController {
       // If distance is less than bird's radius, we have a collision
       if (distanceSquared < birdRadius * birdRadius) {
         // Calculate collision normal (direction to push the bird away from building)
-        const normal = new THREE.Vector3(dx, 0, dz);
-        if (normal.lengthSq() > 0.0001) {
-          normal.normalize();
+        _hitCollision.normal.set(dx, 0, dz);
+        if (_hitCollision.normal.lengthSq() > 0.0001) {
+          _hitCollision.normal.normalize();
         } else {
           // Bird is exactly at the center of the building - push in any direction
-          normal.set(1, 0, 0);
+          _hitCollision.normal.set(1, 0, 0);
         }
 
-        return { hasCollision: true, normal };
+        return _hitCollision;
       }
     }
 
-    return { hasCollision: false, normal: new THREE.Vector3() };
+    return _noCollision;
   }
 
-  /** Calculate slide movement along a surface when colliding */
-  private calculateSlideMovement(displacement: THREE.Vector3, collisionNormal: THREE.Vector3): THREE.Vector3 {
+  /** Calculate slide movement along a surface when colliding. Result written to `out`. */
+  private calculateSlideMovement(displacement: THREE.Vector3, collisionNormal: THREE.Vector3, out: THREE.Vector3): void {
     // Remove the component of movement that's going into the surface
     // This creates a sliding effect along the building wall
     const normalDot = displacement.dot(collisionNormal);
 
     if (normalDot < 0) {
       // Moving into the surface - project displacement onto the surface plane
-      const slideDisplacement = displacement.clone();
-      slideDisplacement.addScaledVector(collisionNormal, -normalDot);
-      return slideDisplacement.multiplyScalar(0.8); // Reduce speed slightly when sliding
+      out.copy(displacement);
+      out.addScaledVector(collisionNormal, -normalDot);
+      out.multiplyScalar(0.8); // Reduce speed slightly when sliding
+    } else {
+      // Moving away from surface, allow normal movement
+      out.copy(displacement);
     }
-
-    // Moving away from surface, allow normal movement
-    return displacement;
   }
 
   /** Gentle push-back when approaching map edges (no hard walls). */
@@ -686,80 +710,73 @@ export class FlightController {
   }
 
   getQuaternion(): THREE.Quaternion {
-    const quat = new THREE.Quaternion();
-    quat.setFromEuler(new THREE.Euler(this.pitchAngle, this.yawAngle, this.rollAngle, 'YXZ'));
+    _euler.set(this.pitchAngle, this.yawAngle, this.rollAngle, 'YXZ');
+    _quat.setFromEuler(_euler);
 
     // Apply flip rotation if currently flipping
     if (this.isFlipping && this.flipType) {
       const flipRot = this.getFlipRotation();
-      const flipQuat = new THREE.Quaternion();
 
       switch (this.flipType) {
         case 'front':
-          // Front flip: rotate around local X axis (pitch forward)
-          flipQuat.setFromAxisAngle(new THREE.Vector3(1, 0, 0), flipRot);
+          _flipAxis.set(1, 0, 0);
+          _flipQuat.setFromAxisAngle(_flipAxis, flipRot);
           break;
         case 'back':
-          // Back flip: rotate around local X axis (pitch backward)
-          flipQuat.setFromAxisAngle(new THREE.Vector3(1, 0, 0), -flipRot);
+          _flipAxis.set(1, 0, 0);
+          _flipQuat.setFromAxisAngle(_flipAxis, -flipRot);
           break;
         case 'left':
-          // Left barrel roll: rotate around local Z axis
-          flipQuat.setFromAxisAngle(new THREE.Vector3(0, 0, 1), -flipRot);
+          _flipAxis.set(0, 0, 1);
+          _flipQuat.setFromAxisAngle(_flipAxis, -flipRot);
           break;
         case 'right':
-          // Right barrel roll: rotate around local Z axis
-          flipQuat.setFromAxisAngle(new THREE.Vector3(0, 0, 1), flipRot);
+          _flipAxis.set(0, 0, 1);
+          _flipQuat.setFromAxisAngle(_flipAxis, flipRot);
           break;
         case 'corkscrewLeft':
-          // Corkscrew left: spiral rotation (combine roll and pitch)
-          {
-            const rollQuat = new THREE.Quaternion();
-            const pitchQuat = new THREE.Quaternion();
-            rollQuat.setFromAxisAngle(new THREE.Vector3(0, 0, 1), -flipRot);
-            pitchQuat.setFromAxisAngle(new THREE.Vector3(1, 0, 0), flipRot * 0.3);
-            flipQuat.multiplyQuaternions(rollQuat, pitchQuat);
-          }
+          _flipAxis.set(0, 0, 1);
+          _corkscrewRoll.setFromAxisAngle(_flipAxis, -flipRot);
+          _flipAxis.set(1, 0, 0);
+          _corkscrewPitch.setFromAxisAngle(_flipAxis, flipRot * 0.3);
+          _flipQuat.multiplyQuaternions(_corkscrewRoll, _corkscrewPitch);
           break;
         case 'corkscrewRight':
-          // Corkscrew right: spiral rotation (combine roll and pitch)
-          {
-            const rollQuat = new THREE.Quaternion();
-            const pitchQuat = new THREE.Quaternion();
-            rollQuat.setFromAxisAngle(new THREE.Vector3(0, 0, 1), flipRot);
-            pitchQuat.setFromAxisAngle(new THREE.Vector3(1, 0, 0), flipRot * 0.3);
-            flipQuat.multiplyQuaternions(rollQuat, pitchQuat);
-          }
+          _flipAxis.set(0, 0, 1);
+          _corkscrewRoll.setFromAxisAngle(_flipAxis, flipRot);
+          _flipAxis.set(1, 0, 0);
+          _corkscrewPitch.setFromAxisAngle(_flipAxis, flipRot * 0.3);
+          _flipQuat.multiplyQuaternions(_corkscrewRoll, _corkscrewPitch);
           break;
         case 'sideFlipLeft':
-          // Side flip left: rotate around Y axis to the left
-          flipQuat.setFromAxisAngle(new THREE.Vector3(0, 1, 0), -flipRot);
+          _flipAxis.set(0, 1, 0);
+          _flipQuat.setFromAxisAngle(_flipAxis, -flipRot);
           break;
         case 'sideFlipRight':
-          // Side flip right: rotate around Y axis to the right
-          flipQuat.setFromAxisAngle(new THREE.Vector3(0, 1, 0), flipRot);
+          _flipAxis.set(0, 1, 0);
+          _flipQuat.setFromAxisAngle(_flipAxis, flipRot);
           break;
         case 'inverted':
-          // Inverted flip: half rotation (180°) around X axis
-          flipQuat.setFromAxisAngle(new THREE.Vector3(1, 0, 0), flipRot * 0.5);
+          _flipAxis.set(1, 0, 0);
+          _flipQuat.setFromAxisAngle(_flipAxis, flipRot * 0.5);
           break;
         case 'aileronRoll':
-          // Aileron roll: smooth barrel roll (same as right barrel roll but slower)
-          flipQuat.setFromAxisAngle(new THREE.Vector3(0, 0, 1), flipRot);
+          _flipAxis.set(0, 0, 1);
+          _flipQuat.setFromAxisAngle(_flipAxis, flipRot);
           break;
       }
 
       // Apply flip rotation in local space
-      quat.multiply(flipQuat);
+      _quat.multiply(_flipQuat);
     }
 
-    return quat;
+    return _quat;
   }
 
   getForward(): THREE.Vector3 {
-    const quat = new THREE.Quaternion();
-    quat.setFromEuler(new THREE.Euler(this.pitchAngle, this.yawAngle, 0, 'YXZ'));
-    return new THREE.Vector3(0, 0, -1).applyQuaternion(quat);
+    _euler.set(this.pitchAngle, this.yawAngle, 0, 'YXZ');
+    _quat.setFromEuler(_euler);
+    return _forward.set(0, 0, -1).applyQuaternion(_quat);
   }
 
   private startFlip(type: 'front' | 'back' | 'left' | 'right' | 'corkscrewLeft' | 'corkscrewRight' |

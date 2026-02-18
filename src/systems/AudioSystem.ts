@@ -304,14 +304,24 @@ export class AudioSystem {
   private scheduleMusicLoop(): void {
     if (!this.ctx) return;
     const scheduleAhead = 0.2; // schedule notes 200ms ahead
+    const maxBeatsPerFrame = 16; // safety guard against huge time jumps
     const tick = () => {
       if (!this.ctx || !this.musicGain) return;
-      while (this.musicNextBeatTime < this.ctx.currentTime + scheduleAhead) {
+      let scheduled = 0;
+      while (
+        this.musicNextBeatTime < this.ctx.currentTime + scheduleAhead &&
+        scheduled < maxBeatsPerFrame
+      ) {
         this.playMusicBeat(this.musicNextBeatTime);
         const beatDuration = 60 / this.musicBPM;
         this.musicNextBeatTime += beatDuration;
         this.musicBeat = (this.musicBeat + 1) % 16;
         if (this.musicBeat === 0) this.musicMeasure++;
+        scheduled++;
+      }
+      if (scheduled >= maxBeatsPerFrame) {
+        // Resync scheduler without trying to catch up an unbounded backlog.
+        this.musicNextBeatTime = this.ctx.currentTime + scheduleAhead;
       }
       // Smooth intensity transitions
       this.musicIntensity += (this.musicTargetIntensity - this.musicIntensity) * 0.02;

@@ -128,6 +128,7 @@ export const CAMERA = {
 
 export const POOP = {
   GRAVITY: 15,
+  AIR_DRAG: 0, // set >0 to model horizontal air resistance
   INITIAL_DOWN_SPEED: 2,
   INHERIT_FORWARD_FRACTION: 0.55,
   COOLDOWN: 0.4,
@@ -135,12 +136,13 @@ export const POOP = {
   MAX_LIFETIME: 8,
   SPLAT_RADIUS: 0.5,
   DECAL_MAX_COUNT: 300,
-  DECAL_LIFETIME: 300, // 5 minutes
+  DECAL_LIFETIME: 120, // 2 minutes
   DECAL_FADE_TIME: 10, // fade over last 10 seconds
 };
 
 export const NPC_CONFIG = {
-  COUNT: 300,
+  // Keep CPU load predictable; very high NPC counts can stall rendering/input.
+  COUNT: 80,
   HIT_FREEZE_TIME: 3.0,
   BOUNDING_RADIUS: 1.0,
   DESPAWN_DISTANCE: 700,
@@ -200,10 +202,10 @@ export const NPC_CONFIG = {
   SCATTER_CLUSTER_THRESHOLD: 3, // NPCs hit at once for "STRIKE!" bonus
   SCATTER_CLUSTER_BONUS: 15,   // Bonus coins for cluster scatter
 
-  BASE_SPAWN_RATE: 12,
-  HOTSPOT_SPAWN_RATE: 20,
-  MAX_PER_DISTRICT: 800,
-  BATCH_SPAWN_COUNT: 4,       // Spawn multiple NPCs per tick
+  BASE_SPAWN_RATE: 6,
+  HOTSPOT_SPAWN_RATE: 10,
+  MAX_PER_DISTRICT: 180,
+  BATCH_SPAWN_COUNT: 2,       // Spawn multiple NPCs per tick
 
   // Behavior tuning
   IDLE_CHANCE: 0.15,        // Chance per waypoint arrival to stop and idle
@@ -785,4 +787,3 @@ export const MVM = {
   TEAM_A_COLOR: 0x4488ff,
   TEAM_B_COLOR: 0xff4444,
 };
-

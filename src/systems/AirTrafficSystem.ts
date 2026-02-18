@@ -3,6 +3,11 @@ import { AIR_TRAFFIC, DRONES } from '../utils/Constants';
 import { createToonMaterial } from '../rendering/ToonUtils';
 import type { Poop } from '../entities/Poop';
 
+// Reusable scratch vectors — allocated once, reused every frame
+const _dir = new THREE.Vector3();
+const _toCenter = new THREE.Vector3();
+const _vel = new THREE.Vector3();
+
 interface Helicopter {
   mesh: THREE.Group;
   position: THREE.Vector3;
@@ -490,12 +495,12 @@ export class AirTrafficSystem {
         heli.isChasing = false;
       }
 
-      const direction = new THREE.Vector3().subVectors(heli.targetPosition, heli.mesh.position);
-      const distance = direction.length();
+      _dir.subVectors(heli.targetPosition, heli.mesh.position);
+      const distance = _dir.length();
 
       if (distance > 5) {
-        direction.normalize();
-        heli.velocity.lerp(direction.multiplyScalar(AIR_TRAFFIC.HELICOPTER_SPEED), dt);
+        _dir.normalize().multiplyScalar(AIR_TRAFFIC.HELICOPTER_SPEED);
+        heli.velocity.lerp(_dir, dt);
       } else if (!heli.isChasing) {
         heli.targetPosition.set(
           (Math.random() - 0.5) * 1400,
@@ -505,7 +510,7 @@ export class AirTrafficSystem {
         );
       }
 
-      heli.mesh.position.add(heli.velocity.clone().multiplyScalar(dt));
+      heli.mesh.position.addScaledVector(heli.velocity, dt);
 
       if (heli.velocity.length() > 0.1) {
         const angle = Math.atan2(heli.velocity.x, heli.velocity.z);
@@ -530,8 +535,8 @@ export class AirTrafficSystem {
 
   private updateBirdFlocks(dt: number): void {
     for (const flock of this.birdFlocks) {
-      const direction = new THREE.Vector3().subVectors(flock.targetPosition, flock.center);
-      const distance = direction.length();
+      _dir.subVectors(flock.targetPosition, flock.center);
+      const distance = _dir.length();
 
       if (distance < 20) {
         flock.targetPosition.set(
@@ -541,30 +546,26 @@ export class AirTrafficSystem {
         );
       }
 
-      direction.normalize();
-      flock.velocity.lerp(direction.multiplyScalar(AIR_TRAFFIC.FLOCK_SPEED), dt * 0.5);
-      flock.center.add(flock.velocity.clone().multiplyScalar(dt));
+      _dir.normalize().multiplyScalar(AIR_TRAFFIC.FLOCK_SPEED);
+      flock.velocity.lerp(_dir, dt * 0.5);
+      flock.center.addScaledVector(flock.velocity, dt);
 
       for (let i = 0; i < flock.birds.length; i++) {
         const bird = flock.birds[i];
 
-        const toCenter = new THREE.Vector3().subVectors(flock.center, bird.position);
-        toCenter.multiplyScalar(0.1);
+        _toCenter.subVectors(flock.center, bird.position).multiplyScalar(0.1);
+        bird.position.addScaledVector(_toCenter, dt);
 
-        const randomOffset = new THREE.Vector3(
-          (Math.random() - 0.5) * 2,
-          (Math.random() - 0.5) * 0.5,
-          (Math.random() - 0.5) * 2
-        );
+        // Random jitter inline (avoid allocating a Vector3)
+        bird.position.x += (Math.random() - 0.5) * 2 * dt;
+        bird.position.y += (Math.random() - 0.5) * 0.5 * dt;
+        bird.position.z += (Math.random() - 0.5) * 2 * dt;
 
-        bird.position.add(toCenter.multiplyScalar(dt));
-        bird.position.add(randomOffset.multiplyScalar(dt));
-        bird.position.add(flock.velocity.clone().multiplyScalar(dt));
+        bird.position.addScaledVector(flock.velocity, dt);
 
-        const birdVel = new THREE.Vector3().subVectors(flock.center, bird.position).add(flock.velocity);
-        if (birdVel.length() > 0.1) {
-          const angle = Math.atan2(birdVel.x, birdVel.z);
-          bird.rotation.y = angle;
+        _vel.subVectors(flock.center, bird.position).add(flock.velocity);
+        if (_vel.length() > 0.1) {
+          bird.rotation.y = Math.atan2(_vel.x, _vel.z);
         }
 
         // Flap wings
@@ -643,8 +644,8 @@ export class AirTrafficSystem {
       }
 
       // Fly toward target
-      const dir = new THREE.Vector3().subVectors(drone.target, drone.position);
-      const dist = dir.length();
+      _dir.subVectors(drone.target, drone.position);
+      const dist = _dir.length();
 
       if (dist < 10) {
         // Pick new target
@@ -655,12 +656,12 @@ export class AirTrafficSystem {
         );
       }
 
-      dir.normalize();
-      drone.position.addScaledVector(dir, drone.speed * dt);
+      _dir.normalize();
+      drone.position.addScaledVector(_dir, drone.speed * dt);
       drone.mesh.position.copy(drone.position);
 
       // Face direction of travel
-      drone.mesh.rotation.y = Math.atan2(dir.x, dir.z);
+      drone.mesh.rotation.y = Math.atan2(_dir.x, _dir.z);
       // Slight tilt forward
       drone.mesh.rotation.x = 0.1;
     }
