@@ -204,11 +204,18 @@ export class Player {
   }
 
   private isValidPosition(pos: Vector3): boolean {
-    const maxBound = 115;
+    // Server bounds should match the client world scale (city spans hundreds of units).
+    const maxBound = 1000;
+
+    // Reject non-finite values first.
+    if (!Number.isFinite(pos.x) || !Number.isFinite(pos.y) || !Number.isFinite(pos.z)) {
+      return false;
+    }
+
     if (Math.abs(pos.x) > maxBound || Math.abs(pos.z) > maxBound) {
       return false;
     }
-    if (pos.y < 0.5 || pos.y > 200) {
+    if (pos.y < -5 || pos.y > 350) {
       return false;
     }
     return true;
