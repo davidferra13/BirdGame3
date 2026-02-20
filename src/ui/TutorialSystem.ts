@@ -1,3 +1,6 @@
+import { DEFAULT_BINDINGS, type KeyBindings } from '../core/InputManager';
+import { bindingToDisplayName } from './KeyDisplay';
+
 export class TutorialSystem {
   private container: HTMLElement;
   private steps: { text: string; condition: string; dismissed: boolean }[];
@@ -6,7 +9,7 @@ export class TutorialSystem {
   private fadeTimer = 0;
   private completed = false;
 
-  // Scripted "Drop it." hook (first 10 seconds)
+  // Scripted first-hook prompt.
   private hookElement: HTMLElement | null = null;
   private hookActive = true;
   hookDismissed = false;
@@ -19,19 +22,25 @@ export class TutorialSystem {
   hasReachedHighHeat = false;
   hasHitNPC = false;
 
-  constructor() {
+  constructor(bindings: KeyBindings = DEFAULT_BINDINGS) {
     this.container = document.getElementById('hud')!;
 
-    // 5 overlay prompts per spec
+    const moveKeys = [
+      bindingToDisplayName(bindings, 'moveForward'),
+      bindingToDisplayName(bindings, 'moveLeft'),
+      bindingToDisplayName(bindings, 'moveBackward'),
+      bindingToDisplayName(bindings, 'moveRight'),
+    ].join('/');
+
     this.steps = [
-      { text: 'W/A/S/D + Mouse — Forward, Brake, Turn, Look', condition: 'move', dismissed: false },
-      { text: 'SPACE to Fly Up', condition: 'fly', dismissed: false },
-      { text: 'CLICK to Drop', condition: 'drop', dismissed: false },
-      { text: 'High Heat = WANTED = Danger!', condition: 'heat', dismissed: false },
-      { text: 'Fly to the Green Beam to BANK', condition: 'bank', dismissed: false },
+      { text: `${moveKeys} + MOUSE: Move and steer`, condition: 'move', dismissed: false },
+      { text: `${bindingToDisplayName(bindings, 'ascend')} to fly up`, condition: 'fly', dismissed: false },
+      { text: 'LEFT CLICK to drop', condition: 'drop', dismissed: false },
+      { text: 'High Heat means more danger and bigger rewards', condition: 'heat', dismissed: false },
+      { text: `Reach the green beam and hold ${bindingToDisplayName(bindings, 'interact')} to bank`, condition: 'bank', dismissed: false },
     ];
 
-    // Show the scripted "Drop it." hook first
+    // Show the scripted hook first.
     this.showHook();
   }
 
@@ -57,7 +66,7 @@ export class TutorialSystem {
       setTimeout(() => el.remove(), 1000);
       this.hookElement = null;
     }
-    // Start normal tutorial prompts after a brief pause
+    // Start normal tutorial prompts after a brief pause.
     setTimeout(() => this.showCurrentStep(), 1500);
   }
 
@@ -81,15 +90,11 @@ export class TutorialSystem {
   }
 
   update(dt: number): void {
-    // Hook phase: just wait for dismissHook() to be called
-    if (this.hookActive) return;
-
-    if (this.completed) return;
+    if (this.hookActive || this.completed) return;
 
     const step = this.steps[this.currentStep];
     if (!step) return;
 
-    // Check dismissal conditions
     let dismiss = false;
     switch (step.condition) {
       case 'move': dismiss = this.hasMoved; break;
@@ -111,7 +116,7 @@ export class TutorialSystem {
       return;
     }
 
-    // Auto-dismiss after 15 seconds
+    // Auto-dismiss after 15 seconds.
     this.fadeTimer += dt;
     if (this.fadeTimer > 12 && this.stepElement) {
       this.stepElement.style.opacity = String(Math.max(0, 1 - (this.fadeTimer - 12) / 3));

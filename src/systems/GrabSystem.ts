@@ -16,21 +16,21 @@ const TALON_OFFSET_Y = -3.5; // How far below bird to position grabbed NPC (clea
 const PET_TALON_OFFSET_Y = -2.0; // Pets hang closer (they're smaller)
 const PET_SAFE_DROP_HEIGHT = 8; // Max altitude to safely place a pet
 
-// Per-type carry weight (speed multiplier: lower = heavier, 1.0 = weightless)
+// Per-type carry movement tuning (top-speed cap multiplier while carrying)
 const CARRY_WEIGHTS: Record<string, number> = {
-  // Pets — light
-  cat:                  0.95,
-  dog:                  0.90,
-  // NPCs — heavier
-  tourist:              0.78,
-  performer:            0.78,
-  'glamorous-elegance': 0.75,
-  business:             0.72,
-  chef:                 0.68,
-  police:               0.62, // heavy gear
-  treeman:              0.55, // bulky costume
+  // Pets - near full mobility
+  cat:                  1.00,
+  dog:                  0.98,
+  // NPCs - moderate top-speed reduction only
+  tourist:              0.96,
+  performer:            0.96,
+  'glamorous-elegance': 0.95,
+  business:             0.94,
+  chef:                 0.93,
+  police:               0.90, // heavy gear
+  treeman:              0.88, // bulky costume
 };
-const DEFAULT_CARRY_WEIGHT = 0.7;
+const DEFAULT_CARRY_WEIGHT = 0.92;
 
 // Event callbacks for Heist mode integration
 export type GrabEventCallback = (event: 'grab' | 'release' | 'force-release', data?: any) => void;
@@ -298,7 +298,7 @@ export class GrabSystem {
     }
   }
 
-  /** Apply weight penalty to bird speed when carrying */
+  /** Get top-speed cap multiplier while carrying. */
   getSpeedMultiplier(): number {
     if (this.grabbedNPC) return CARRY_WEIGHTS[this.grabbedNPC.npcType] ?? DEFAULT_CARRY_WEIGHT;
     if (this.grabbedPet) return CARRY_WEIGHTS[this.grabbedPet.type] ?? DEFAULT_CARRY_WEIGHT;
@@ -344,3 +344,4 @@ export class GrabSystem {
     }
   }
 }
+

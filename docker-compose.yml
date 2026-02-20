@@ -1,0 +1,40 @@
+services:
+  server:
+    container_name: bird-game-server
+    build:
+      context: .
+      dockerfile: docker/server.Dockerfile
+    env_file:
+      - .env
+    environment:
+      PORT: 3001
+      WORLD_ID: ${WORLD_ID:-global-1}
+      NODE_ENV: production
+    ports:
+      - "${WS_PORT:-3300}:3001"
+    restart: unless-stopped
+
+  web:
+    container_name: bird-game-web
+    build:
+      context: .
+      dockerfile: docker/web.Dockerfile
+      args:
+        VITE_SUPABASE_URL: ${VITE_SUPABASE_URL:-}
+        VITE_SUPABASE_ANON_KEY: ${VITE_SUPABASE_ANON_KEY:-}
+        VITE_WS_URL: ${DOCKER_VITE_WS_URL:-ws://localhost:${WS_PORT:-3300}}
+        VITE_WORLD_ID: ${VITE_WORLD_ID:-global-1}
+    depends_on:
+      - server
+    ports:
+      - "${WEB_PORT:-8080}:80"
+    restart: unless-stopped
+
+  tunnel:
+    image: cloudflare/cloudflared:2025.7.0
+    container_name: bird-game-tunnel
+    command: tunnel --no-autoupdate --url http://server:3001
+    depends_on:
+      - server
+    profiles: ["tunnel"]
+    restart: unless-stopped

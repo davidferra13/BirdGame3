@@ -246,14 +246,14 @@ export class VehicleSystem {
 
         for (let n = 0; n < this.npcList.length; n++) {
           const npc = this.npcList[n];
-          if (npc.isHit || npc.isGrabbed) continue;
+          if (npc.isHit || npc.isGrabbed || npc.shouldDespawn) continue;
           const ndx = npc.mesh.position.x - v.mesh.position.x;
           const ndz = npc.mesh.position.z - v.mesh.position.z;
           const nDistSq = ndx * ndx + ndz * ndz;
           if (nDistSq < STOP_DIST_SQ) {
-            speedMult = 0;
+            // Slow heavily, but don't fully stop so collisions can still occur.
+            speedMult = Math.min(speedMult, 0.2);
             npc.flee(v.mesh.position);
-            break;
           } else if (nDistSq < BRAKE_DIST_SQ) {
             const dot = ndx * tdx + ndz * tdz;
             if (dot > 0) {
@@ -280,6 +280,8 @@ export class VehicleSystem {
       const dir = new THREE.Vector3().subVectors(v.pathEnd, v.pathStart).normalize();
       if (v.direction < 0) dir.negate();
       v.mesh.rotation.y = Math.atan2(dir.x, dir.z);
+
+      this.checkNPCHits(v);
 
       // Despawn if too far
       if (pdx * pdx + pdz * pdz > DESPAWN_SQ) {
@@ -314,6 +316,32 @@ export class VehicleSystem {
           });
           break;
         }
+      }
+    }
+  }
+
+  private checkNPCHits(vehicle: Vehicle): void {
+    if (this.npcList.length === 0) return;
+
+    const speed = Math.abs(vehicle.speed);
+    if (speed < 1.5) return;
+
+    const vPos = vehicle.mesh.position;
+    const hitRadiusSq = vehicle.hitRadius * vehicle.hitRadius;
+
+    for (let i = 0; i < this.npcList.length; i++) {
+      const npc = this.npcList[i];
+      if (npc.isHit || npc.isGrabbed || npc.shouldDespawn) continue;
+
+      const nPos = npc.mesh.position;
+      const dx = nPos.x - vPos.x;
+      const dz = nPos.z - vPos.z;
+      const radius = vehicle.hitRadius + npc.boundingRadius * 0.7;
+
+      if (dx * dx + dz * dz < Math.max(hitRadiusSq, radius * radius)) {
+        npc.onHit();
+        npc.flee(vPos);
+        vehicle.flashTimer = Math.max(vehicle.flashTimer, 0.2);
       }
     }
   }

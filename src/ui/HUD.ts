@@ -6,6 +6,8 @@ import { BankingSystem } from '../systems/BankingSystem';
 import { ProgressionSystem } from '../systems/ProgressionSystem';
 import { AbilityManager } from '../systems/abilities/AbilityManager';
 import { City } from '../world/City';
+import { DEFAULT_BINDINGS, type KeyBindings } from '../core/InputManager';
+import { bindingToDisplayName } from './KeyDisplay';
 
 export class HUD {
   private container: HTMLElement;
@@ -46,15 +48,13 @@ export class HUD {
   // Mission UI
   private missionObjective: HTMLElement;
   private missionCompleted: HTMLElement;
+  private coreObjective: HTMLElement;
 
   // Hotspot indicator
   private hotspotIndicator: HTMLElement;
 
   // Boost indicator
   private boostIndicator: HTMLElement;
-
-  // Braking indicator
-  private brakeIndicator: HTMLElement;
 
   // Dive bomb indicator
   private diveBombIndicator: HTMLElement;
@@ -81,7 +81,7 @@ export class HUD {
   private drivingPrompt: HTMLElement;
   private speedometerEl: HTMLElement;
 
-  // Change detection cache — skip DOM writes when values haven't changed
+  // Change detection cache â€” skip DOM writes when values haven't changed
   private _prevState = '';
   private _prevStateColor = '';
   private _prevMultiplier = '';
@@ -98,14 +98,17 @@ export class HUD {
   private _prevDistrict = '';
   private _prevHotspot = false;
   private _prevBankChannel = '';
+  private _prevCoreObjective = '';
+  private readonly bindings: KeyBindings;
 
-  constructor() {
+  constructor(bindings: KeyBindings = DEFAULT_BINDINGS) {
+    this.bindings = bindings;
     this.container = document.getElementById('hud')!;
     this.container.innerHTML = '';
 
     const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
 
-    // Responsive text stroke helper — white text with thin black outline
+    // Responsive text stroke helper â€” white text with thin black outline
     const stroke = '-1px -1px 0 rgba(0,0,0,0.7),1px -1px 0 rgba(0,0,0,0.7),-1px 1px 0 rgba(0,0,0,0.7),1px 1px 0 rgba(0,0,0,0.7)';
     // Responsive scale factor based on viewport width
     const vw = window.innerWidth;
@@ -129,7 +132,7 @@ export class HUD {
 
     this.container.appendChild(topLeft);
 
-    // === TOP RIGHT: Coins, Banked, Level, XP — positioned to avoid minimap ===
+    // === TOP RIGHT: Coins, Banked, Level, XP â€” positioned to avoid minimap ===
     const topRight = this.div(`position:absolute;top:${Math.round(10 * scale)}px;right:${isTouchDevice ? '90' : '16'}px;text-align:right;`);
 
     this.coinsEl = this.div(`font-size:${Math.round(24 * scale)}px;font-weight:bold;color:#fff;text-shadow:${stroke};`);
@@ -214,15 +217,6 @@ export class HUD {
     this.boostIndicator.textContent = 'BOOST!';
     this.container.appendChild(this.boostIndicator);
 
-    // Braking indicator
-    this.brakeIndicator = this.div(
-      `position:absolute;top:35%;left:50%;transform:translateX(-50%);` +
-      `font-size:${Math.round(14 * scale)}px;font-weight:bold;color:#ffaa44;letter-spacing:2px;` +
-      `text-shadow:${stroke},0 0 6px #ffaa44;display:none;`,
-    );
-    this.brakeIndicator.textContent = 'BRAKING';
-    this.container.appendChild(this.brakeIndicator);
-
     // Dive bomb indicator
     this.diveBombIndicator = this.div(
       `position:absolute;top:35%;left:50%;transform:translateX(-50%);` +
@@ -262,6 +256,14 @@ export class HUD {
       `border-left:2px solid #6688ff;max-width:${Math.round(220 * scale)}px;display:none;`,
     );
     this.container.appendChild(this.missionObjective);
+
+    this.coreObjective = this.div(
+      `position:absolute;top:${Math.round(62 * scale)}px;left:${Math.round(10 * scale)}px;` +
+      `font-size:${Math.round(11 * scale)}px;color:#ccffdd;text-shadow:${stroke};` +
+      `background:rgba(0,0,0,0.45);padding:6px 10px;border-radius:5px;` +
+      `border-left:2px solid #44ffaa;max-width:${Math.round(280 * scale)}px;display:none;`,
+    );
+    this.container.appendChild(this.coreObjective);
 
     // Mission completed notification
     this.missionCompleted = this.div(
@@ -315,19 +317,28 @@ export class HUD {
     );
     topRight.appendChild(this.murmTagEl);
 
-    // District indicator (compact, bottom-left, above cooldown — hidden on mobile by default in collapsible HUD)
+    // District indicator (compact, bottom-left, above cooldown â€” hidden on mobile by default in collapsible HUD)
     this.districtEl = this.div(
       `position:absolute;bottom:${Math.round(140 * scale)}px;left:${Math.round(10 * scale)}px;font-size:${Math.round(12 * scale)}px;font-weight:bold;color:rgba(255,255,255,0.85);text-shadow:${stroke};padding:4px 10px;border-radius:6px;`,
     );
     this.container.appendChild(this.districtEl);
 
-    // Controls hint — HIDDEN on touch devices (zero-noise mobile rule)
+    // Controls hint â€” HIDDEN on touch devices (zero-noise mobile rule)
     this.controlsEl = this.div(
       `position:absolute;bottom:100px;right:16px;font-size:${Math.round(10 * scale)}px;color:rgba(255,255,255,0.5);text-shadow:${stroke};line-height:1.6;text-align:right;transition:opacity 2s;`,
     );
     if (!isTouchDevice) {
       this.controlsEl.innerHTML =
-        'W — Forward / Walk<br>S — Brake / Walk Back<br>A/D — Turn<br>SPACE — Ascend<br>CTRL — Fast Descend<br>SHIFT — Slow Descend<br>CAPS — Bomber Mode<br>CLICK — Poop<br>T — Boost<br>E — Bank';
+        `${bindingToDisplayName(this.bindings, 'moveForward')} - Forward / Walk<br>` +
+        `${bindingToDisplayName(this.bindings, 'moveBackward')} - Brake / Stop / Walk Back<br>` +
+        `${bindingToDisplayName(this.bindings, 'moveLeft')}/${bindingToDisplayName(this.bindings, 'moveRight')} - Turn<br>` +
+        `${bindingToDisplayName(this.bindings, 'ascend')} - Ascend<br>` +
+        `${bindingToDisplayName(this.bindings, 'fastDescend')} - Fast Descend<br>` +
+        `${bindingToDisplayName(this.bindings, 'gentleDescend')} - Slow Descend<br>` +
+        `${bindingToDisplayName(this.bindings, 'bomberMode')} - Bomber Mode<br>` +
+        `CLICK - Drop<br>` +
+        `${bindingToDisplayName(this.bindings, 'boost')} - Boost<br>` +
+        `${bindingToDisplayName(this.bindings, 'interact')} - Bank / Interact`;
       this.container.appendChild(this.controlsEl);
       setTimeout(() => { this.controlsEl.style.opacity = '0'; }, 8000);
     }
@@ -391,7 +402,7 @@ export class HUD {
     city?: City,
     abilityManager?: AbilityManager,
   ): void {
-    // State label — show WALKING when bird is on ground (unless in penalty GROUNDED state)
+    // State label â€” show WALKING when bird is on ground (unless in penalty GROUNDED state)
     const label = playerState.stateLabel;
     const isWalking = bird.controller.isGrounded && playerState.state === 'NORMAL';
     const displayLabel = isWalking ? 'WALKING' : label;
@@ -440,11 +451,11 @@ export class HUD {
     const totalWorms = score.totalWorms + progression.worms;
     const feathers = progression.feathers;
     const goldenEggs = progression.goldenEggs;
-    const wormsText = totalWorms > 0 ? `🪱 ${totalWorms}` : '';
+    const wormsText = totalWorms > 0 ? `ðŸª± ${totalWorms}` : '';
     if (this._prevWorms !== wormsText) { this._prevWorms = wormsText; this.wormsEl.textContent = wormsText; }
-    const feathersText = feathers > 0 ? `🪶 ${feathers}` : '';
+    const feathersText = feathers > 0 ? `ðŸª¶ ${feathers}` : '';
     if (this._prevFeathers !== feathersText) { this._prevFeathers = feathersText; this.feathersEl.textContent = feathersText; }
-    const eggsText = goldenEggs > 0 ? `🥚 ${goldenEggs}` : '';
+    const eggsText = goldenEggs > 0 ? `ðŸ¥š ${goldenEggs}` : '';
     if (this._prevGoldenEggs !== eggsText) { this._prevGoldenEggs = eggsText; this.goldenEggsEl.textContent = eggsText; }
 
     // Level & XP
@@ -487,11 +498,8 @@ export class HUD {
       this.hotspotIndicator.style.display = inHotspot ? 'block' : 'none';
     }
 
-    // Boost & Brake & Dive Bomb indicators (mutually exclusive position)
-    const isBombing = bird.controller.isBomberMode && !bird.controller.isGrounded && !bird.controller.isDiving;
+    // Boost and Dive Bomb indicators
     this.boostIndicator.style.display = bird.controller.isBoosting ? 'block' : 'none';
-    this.brakeIndicator.style.display = (!bird.controller.isBoosting && (bird.controller.isBraking || isBombing)) ? 'block' : 'none';
-    this.brakeIndicator.textContent = isBombing ? 'BOMBING RUN' : 'BRAKING';
     this.diveBombIndicator.style.display = bird.controller.isDiveBombing ? 'block' : 'none';
 
     // Alt/speed
@@ -546,12 +554,31 @@ export class HUD {
     // District indicator
     if (city) {
       const district = city.getDistrict(bird.controller.position);
-      const districtName = district ? `📍 ${district.name}` : '📍 Open Sky';
+      const districtName = district ? `DISTRICT: ${district.name}` : 'DISTRICT: Open Sky';
       if (this._prevDistrict !== districtName) {
         this._prevDistrict = districtName;
         this.districtEl.textContent = districtName;
         this.districtEl.style.display = 'block';
       }
+    }
+
+    // Beginner objective helper for first few bank runs.
+    let coreObjectiveText = '';
+    if (progression.stats.totalBanks < 3) {
+      if (score.coins <= 0) {
+        coreObjectiveText = 'Objective: Hit targets to earn coins.';
+      } else if (playerState.state === 'BANKING') {
+        coreObjectiveText = 'Objective: Hold steady to complete banking.';
+      } else if (score.coins >= 50) {
+        coreObjectiveText = `Objective: Bank now at the green beam (${bindingToDisplayName(this.bindings, 'interact')}).`;
+      } else {
+        coreObjectiveText = 'Objective: Build a streak, then bank safely.';
+      }
+    }
+    if (this._prevCoreObjective !== coreObjectiveText) {
+      this._prevCoreObjective = coreObjectiveText;
+      this.coreObjective.textContent = coreObjectiveText;
+      this.coreObjective.style.display = coreObjectiveText ? 'block' : 'none';
     }
 
     // Bank message timer
@@ -591,19 +618,27 @@ export class HUD {
     this.bankMsgTimer = 3.0;
   }
 
+  showStatusMessage(text: string, color: string = '#ffd36b', duration: number = 1.8): void {
+    this.bankMsgEl.textContent = text;
+    this.bankMsgEl.style.color = color;
+    this.bankMsgEl.style.textShadow = `0 0 14px ${color},2px 2px 4px rgba(0,0,0,0.8)`;
+    this.bankMsgEl.style.display = 'block';
+    this.bankMsgTimer = Math.max(0.6, duration);
+  }
+
   showChallengeComplete(desc: string): void {
     this.challengeNotif.textContent = `CHALLENGE: ${desc}`;
     this.challengeNotif.style.display = 'block';
     this.challengeTimer = 3.0;
   }
 
-  /** Show pet protection warning — the wholesome easter egg */
+  /** Show pet protection warning â€” the wholesome easter egg */
   showPetWarning(petType: 'cat' | 'dog', isBlocked: boolean): void {
     const emoji = petType === 'cat' ? '\uD83D\uDC31' : '\uD83D\uDC36';
     const name = petType === 'cat' ? 'kitty' : 'pup';
 
     if (isBlocked) {
-      // Trying to drop from height — stern but cute warning
+      // Trying to drop from height â€” stern but cute warning
       const messages = [
         `${emoji} Hey! You better place this ${name} down safely!`,
         `${emoji} Whoa there! Fly lower before letting go!`,
@@ -754,13 +789,17 @@ export class HUD {
     this.drivingPrompt.style.display = 'none';
   }
 
-  updateDrivingHUD(speed: number): void {
+  updateDrivingHUD(speed: number, extraHint: string = ''): void {
     this.speedometerEl.style.display = 'block';
     const mph = Math.round(Math.abs(speed) * 2.2);
+    const hintLine = extraHint
+      ? `<div style="font-size:10px;margin-top:2px;color:#9bcfff;text-shadow:1px 1px 2px rgba(0,0,0,0.7);">${extraHint}</div>`
+      : '';
     this.speedometerEl.innerHTML =
       `<div style="font-size:10px;color:#aaa;letter-spacing:2px;text-shadow:1px 1px 3px rgba(0,0,0,0.8);">DRIVING</div>` +
       `<div style="font-size:28px;font-weight:bold;color:#44ddff;text-shadow:0 0 10px #44ddff,2px 2px 4px rgba(0,0,0,0.8);">${mph} MPH</div>` +
-      `<div style="font-size:10px;margin-top:4px;color:#888;text-shadow:1px 1px 2px rgba(0,0,0,0.7);">[Z] Exit Car</div>`;
+      `<div style="font-size:10px;margin-top:4px;color:#888;text-shadow:1px 1px 2px rgba(0,0,0,0.7);">[${bindingToDisplayName(this.bindings, 'interact')}] Exit Car  [RMB] Lasso</div>` +
+      hintLine;
   }
 
   hideDrivingHUD(): void {
@@ -782,3 +821,5 @@ export class HUD {
     return el;
   }
 }
+
+

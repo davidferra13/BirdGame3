@@ -30,7 +30,9 @@ import { MissionSystem } from './systems/MissionSystem';
 import { GrabSystem } from './systems/GrabSystem';
 import { VehicleSystem } from './systems/VehicleSystem';
 import { DrivingSystem } from './systems/DrivingSystem';
+import { HorseLassoSystem } from './systems/HorseLassoSystem';
 import { StreetLifeSystem } from './systems/StreetLifeSystem';
+import { FirearmSystem } from './systems/FirearmSystem';
 import { AbilityManager } from './systems/abilities/AbilityManager';
 import { ABILITY_CHARGE } from './systems/abilities/AbilityTypes';
 import { HUD } from './ui/HUD';
@@ -93,8 +95,12 @@ export class Game {
   private airTraffic: AirTrafficSystem;
   private vehicleSystem: VehicleSystem;
   private drivingSystem: DrivingSystem;
+  private horseLasso: HorseLassoSystem;
   private streetLife: StreetLifeSystem;
   private abilityManager: AbilityManager;
+  private firearmSystem: FirearmSystem;
+  private droppedGunMesh: THREE.Group | null = null;
+  private droppedGunSpinAngle = 0;
   private hud: HUD;
   private coinPopups: CoinPopupManager;
   private sanctuary: Sanctuary;
@@ -141,6 +147,9 @@ export class Game {
 
   // Altitude warning grace period
   private groundingGraceTimer = 0;
+  private easterEggBuffer = '';
+  private breakoutPulseCooldown = 0;
+  private lastBreakoutKey = '';
 
   // Frustum culling for buildings (Phase 1 optimization)
   private frustum = new THREE.Frustum();
@@ -244,6 +253,7 @@ export class Game {
     this.vfx = new VFXSystem(this.scene);
     this.vfx.setCamera(this.cameraController.camera);  // PHASE 5: For distance-based particle culling
     this.emoteSystem = new EmoteSystem();
+    this.firearmSystem = new FirearmSystem(this.scene);
 
     // New gameplay systems
     this.flightRings = new FlightRingSystem({ minX: -750, maxX: 750, minZ: -750, maxZ: 750 });
@@ -270,7 +280,9 @@ export class Game {
 
     // Drivable convertibles (bird driving mechanic)
     this.drivingSystem = new DrivingSystem(this.city.buildings, this.city.streetPaths);
+    this.drivingSystem.setNPCs(this.npcManager.npcs);
     this.scene.add(this.drivingSystem.group);
+    this.horseLasso = new HorseLassoSystem(this.scene);
 
     this.streetLife = new StreetLifeSystem(
       { minX: -750, maxX: 750, minZ: -750, maxZ: 750 },
@@ -291,10 +303,10 @@ export class Game {
     };
 
     // UI
-    this.hud = new HUD();
+    this.hud = new HUD(this.input.bindings);
     this.coinPopups = new CoinPopupManager();
     this.coinPopups.setCamera(this.cameraController.camera);
-    this.tutorial = new TutorialSystem();
+    this.tutorial = new TutorialSystem(this.input.bindings);
 
     // If intro was already skipped (no suitable building found), dismiss the hook immediately
     if (!this.introPhase) {
@@ -324,6 +336,9 @@ export class Game {
 
     // Global chat UI
     this.chatUI = new ChatUI();
+    this.chatUI.setOnSend((message) => {
+      this.handleChatInput(message);
+    });
 
     // Share prompt for viral sharing moments
     this.sharePrompt = new SharePrompt();
@@ -438,15 +453,85 @@ export class Game {
     try {
       this.multiplayer = new MultiplayerManager(this.scene, this.bird, wsUrl);
 
-      // Wire chat: send messages through multiplayer
-      this.chatUI.setOnSend((message) => {
-        this.multiplayer?.sendChat(message);
-      });
-
       // Wire chat: receive messages from server
       this.multiplayer.setEventCallbacks({
+        onConnectionStatus: (status, detail) => {
+          if (status === 'connected') {
+            this.chatUI.addMessage('System', 'Multiplayer connected', true);
+            return;
+          }
+          if (status === 'connecting') {
+            return;
+          }
+          if (status === 'error') {
+            this.chatUI.addMessage(
+              'System',
+              detail || 'Multiplayer connection failed. Check VITE_WS_URL and server status.',
+              true,
+            );
+            return;
+          }
+          if (status === 'disconnected') {
+            this.chatUI.addMessage(
+              'System',
+              detail || 'Disconnected from multiplayer server',
+              true,
+            );
+          }
+        },
+        onServerError: (message) => {
+          if (message === 'World mismatch') {
+            this.chatUI.addMessage(
+              'System',
+              'World mismatch: VITE_WORLD_ID (client) must exactly match WORLD_ID (server).',
+              true,
+            );
+            return;
+          }
+          this.chatUI.addMessage('System', `Server error: ${message}`, true);
+        },
         onChatMessage: (data) => {
           this.chatUI.addMessage(data.username, data.message);
+        },
+        onPvPModeStart: (data) => {
+          this.pvpManager.onServerModeStart(data);
+        },
+        onPvPModeEnd: (data) => {
+          this.pvpManager.onServerModeEnd(data);
+        },
+        onPvPStateUpdate: (data) => {
+          this.pvpManager.onServerStateUpdate(data);
+        },
+        onPvPTagTransfer: (data) => {
+          this.pvpManager.onServerTagTransfer(data);
+        },
+        onPvPCheckpoint: (data) => {
+          this.pvpManager.onServerCheckpoint(data);
+        },
+        onPvPStatueHit: (data) => {
+          this.pvpManager.onServerStatueHit(data);
+        },
+        onLassoAttach: (data) => {
+          this.horseLasso.onServerAttach(data, this.multiplayer?.getPlayerId() ?? null);
+        },
+        onLassoRelease: (data) => {
+          this.horseLasso.onServerRelease(data, this.multiplayer?.getPlayerId() ?? null);
+        },
+        onLassoWindup: (data) => {
+          this.horseLasso.onServerWindup(data, this.multiplayer?.getPlayerId() ?? null);
+          if (data.victimId === (this.multiplayer?.getPlayerId() ?? null)) {
+            this.audio.playUIClick();
+          }
+        },
+        onLassoFeedback: (data) => {
+          this.horseLasso.onServerFeedback(data, this.multiplayer?.getPlayerId() ?? null);
+        },
+        onAdminAnnounce: (data) => {
+          this.chatUI.addMessage('[SERVER]', data.message, true);
+        },
+        onAdminKicked: (_data) => {
+          this.chatUI.addMessage('System', 'You have been kicked by an admin.', true);
+          this.multiplayer?.disconnect();
         },
       });
 
@@ -472,9 +557,16 @@ export class Game {
       const playerId = `${baseId}_${sessionId}`;
 
       await this.multiplayer.connect(playerId, safeUsername);
+      const canonicalPlayerId = this.multiplayer.getPlayerId() || playerId;
+      this.pvpManager.setLocalPlayer(canonicalPlayerId, safeUsername);
       console.log('Multiplayer initialized as:', safeUsername);
     } catch (error) {
       console.error('Failed to initialize multiplayer:', error);
+      this.chatUI.addMessage(
+        'System',
+        'Failed to initialize multiplayer. Verify VITE_WS_URL points to your public server.',
+        true,
+      );
       this.multiplayer = null;
     }
   }
@@ -501,7 +593,11 @@ export class Game {
       this.initAudio();
     }
 
-    if (this.updateMenuToggles()) return;
+    if (this.updateMenuToggles()) {
+      // Keep PvP lifecycle/UI timers progressing even while gameplay updates are paused by UI.
+      this.pvpManager.update(dt);
+      return;
+    }
 
     // --- Intro phase: bird perched on rooftop, "Drop it." prompt ---
     if (this.introPhase) {
@@ -558,6 +654,12 @@ export class Game {
     }
     this.emoteSystem.update(dt);
 
+    // PvP combat actions (cross-mode): 5 = Burst, 6 = Mine.
+    if (this.pvpManager.isInRound() && this.pvpManager.getPhase() === 'active') {
+      if (this.input.wasPressed('Digit5')) this.pvpManager.useLocalBurst();
+      if (this.input.wasPressed('Digit6')) this.pvpManager.useLocalMine();
+    }
+
     // State machine tick
     this.playerState.update(dt);
 
@@ -576,7 +678,20 @@ export class Game {
 
     // Movement
     if (this.playerState.canMove) {
-      this.bird.update(dt, this.input);
+      const pvpMove = this.pvpManager.getLocalMovementModifier();
+      if (pvpMove.rooted) {
+        // Root keeps position control-locked briefly but preserves physics stability.
+        this.bird.controller.forwardSpeed = Math.max(0, this.bird.controller.forwardSpeed - dt * 80);
+      } else {
+        this.bird.update(dt, this.input);
+        if (pvpMove.speedMultiplier < 1) {
+          this.bird.controller.forwardSpeed *= pvpMove.speedMultiplier;
+        }
+        const lassoMoveMult = this.horseLasso.getMoveMultiplier();
+        if (lassoMoveMult < 1) {
+          this.bird.controller.forwardSpeed *= lassoMoveMult;
+        }
+      }
 
       // Tutorial: movement tracking
       if (this.input.getAxis('horizontal') !== 0 || this.input.getAxis('vertical') !== 0) {
@@ -592,14 +707,39 @@ export class Game {
       this.bird.mesh.quaternion.copy(this.bird.controller.getQuaternion());
     }
 
+    this.updateEasterEggInput();
+
+    let consumedPrimaryActionByFirearm = false;
+    const canUseFirearm =
+      this.playerState.canMove &&
+      !this.playerState.isDriving &&
+      this.firearmSystem.canAttemptFire(this.bird);
+    if (canUseFirearm && this.input.isPoop()) {
+      consumedPrimaryActionByFirearm = this.firearmSystem.tryFire(
+        this.bird,
+        this.npcManager,
+        this.scoreSystem,
+        this.coinPopups,
+        this.vfx,
+        this.audio,
+        this.poopManager,
+      );
+    }
+
     // Poop
-    if (this.playerState.canDrop && this.input.isPoop()) {
+    if (this.playerState.canDrop && this.input.isPoop() && !consumedPrimaryActionByFirearm) {
       this.tutorial.hasDropped = true;
     }
-    this.poopManager.update(dt, this.bird, this.input, this.grabSystem.getGrabbedNPC());
+    this.poopManager.update(
+      dt,
+      this.bird,
+      this.input,
+      this.grabSystem.getGrabbedNPC(),
+      !consumedPrimaryActionByFirearm,
+    );
 
     // Audio (drop assist disabled - was causing annoying camera nudge)
-    if (this.input.isPoop() && this.playerState.canDrop) {
+    if (this.input.isPoop() && this.playerState.canDrop && !consumedPrimaryActionByFirearm) {
       this.audio.playPoop();
       this.abilityManager.notifyPlayerPoop();
     }
@@ -663,6 +803,26 @@ export class Game {
 
       // Alert nearby NPCs to flee from the scatter point
       this.npcManager.alertNearby(scatterResult.centerPos);
+    }
+
+    // Vehicle-vs-NPC collisions while the player is driving
+    if (drivingResult.npcHits.length > 0) {
+      for (const hit of drivingResult.npcHits) {
+        const npc = hit.npc;
+        if (npc.isHit || npc.isGrabbed || npc.shouldDespawn) continue;
+
+        const hitResult = npc.onHit();
+        this.scoreSystem.onHitWithValues(hitResult.coins, hitResult.heat, npc.npcType);
+
+        this._tmpVec3A.copy(hit.position);
+        this._tmpVec3A.y += 2;
+        this.coinPopups.spawn(this._tmpVec3A, this.scoreSystem.lastHitPoints, this.scoreSystem.lastHitMultiplier);
+
+        this.npcManager.alertNearby(hit.position);
+
+        const shakeIntensity = Math.min(0.35, 0.08 + hit.impactSpeed / 90);
+        this.cameraController.triggerShake(shakeIntensity, 0.12);
+      }
     }
 
     // Audio + progression: hit detection
@@ -817,6 +977,8 @@ export class Game {
 
     // VFX
     this.vfx.update(dt);
+    this.firearmSystem.update(dt);
+    this.updateDroppedGunPickup(dt);
 
     // Coin popups
     this.coinPopups.update(dt);
@@ -826,7 +988,9 @@ export class Game {
     this.updateAbilities(dt);
 
     // PvP system
+    this.pvpManager.syncMultiplayerPlayers();
     this.pvpManager.updateLocalPlayerPosition(this.bird.controller.position);
+    const localPvPPlayerId = this.pvpManager.getLocalPlayerId();
     if (this.pvpManager.isInRound()) {
       const roundState = this.pvpManager.getRoundState();
       const poops = this.poopManager.getActivePoops();
@@ -834,7 +998,7 @@ export class Game {
       // Poop Tag: check poop-vs-PvP-player hits
       if (roundState.mode === 'poop-tag' && roundState.phase === 'active') {
         const pvpHits = this.collisionSystem.checkPvPPoopHits(
-          poops, 'local', roundState.players,
+          poops, localPvPPlayerId, roundState.players,
         );
         for (const hit of pvpHits) {
           this.pvpManager.onPoopHitPlayer(hit.shooterId, hit.targetId);
@@ -848,7 +1012,7 @@ export class Game {
         if (statuePos) {
           this._tmpVec3A.set(statuePos.x, statuePos.y, statuePos.z);
           const statueHits = this.collisionSystem.checkPvPStatueHits(
-            poops, 'local', this._tmpVec3A,
+            poops, localPvPPlayerId, this._tmpVec3A,
           );
           for (const hit of statueHits) {
             this.pvpManager.onPoopHitStatue(hit.playerId, hit.accuracy, hit.position);
@@ -889,7 +1053,7 @@ export class Game {
         // Update minimap with heist data
         const modeData = roundState.modeData;
         if (modeData) {
-          this.minimap.setHeistActive(true, 'local');
+          this.minimap.setHeistActive(true, localPvPPlayerId);
           this.minimap.setHeistTrophy(
             modeData.trophyPosition ? { x: modeData.trophyPosition.x, z: modeData.trophyPosition.z } : null,
             modeData.carrierId,
@@ -985,6 +1149,143 @@ export class Game {
     }
   }
 
+  private toggleGun(): void {
+    if (!this.firearmSystem.isUnlocked()) {
+      this.firearmSystem.unlock();
+      this.bird.setGunVisible(true);
+      this.chatUI.addMessage('System', '🔫 Secret unlocked! PEWPEW mode activated!', true);
+    } else {
+      const nowVisible = !this.bird.hasGun();
+      this.bird.setGunVisible(nowVisible);
+      if (nowVisible) {
+        // Picking up: remove any dropped gun from the world
+        this.removeDroppedGun();
+        this.chatUI.addMessage('System', 'Sidearm drawn. 🔫', true);
+      } else {
+        this.dropGun();
+        this.chatUI.addMessage('System', 'Sidearm holstered. Gun dropped — anyone can pick it up!', true);
+      }
+    }
+  }
+
+  private buildDroppedGunMesh(): THREE.Group {
+    const gun = new THREE.Group();
+
+    const body = new THREE.Mesh(
+      new THREE.BoxGeometry(0.55, 0.14, 0.12),
+      new THREE.MeshToonMaterial({ color: 0x2a2a2a }),
+    );
+    const barrel = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.025, 0.025, 0.42, 10),
+      new THREE.MeshToonMaterial({ color: 0x111111 }),
+    );
+    barrel.rotation.z = Math.PI / 2;
+    barrel.position.set(0.45, 0, 0);
+
+    const grip = new THREE.Mesh(
+      new THREE.BoxGeometry(0.12, 0.24, 0.09),
+      new THREE.MeshToonMaterial({ color: 0x4a3420 }),
+    );
+    grip.position.set(-0.08, -0.16, 0);
+    grip.rotation.z = -0.28;
+
+    // Glow light so it's easy to spot
+    const glow = new THREE.PointLight(0xffee44, 1.2, 8);
+    glow.position.set(0, 0.5, 0);
+
+    gun.add(body);
+    gun.add(barrel);
+    gun.add(grip);
+    gun.add(glow);
+    gun.name = 'droppedGun';
+    return gun;
+  }
+
+  private dropGun(): void {
+    // Remove any previous dropped gun
+    this.removeDroppedGun();
+
+    const pos = this.bird.controller.position.clone();
+    pos.y = 0.35; // float just above ground
+
+    const mesh = this.buildDroppedGunMesh();
+    mesh.position.copy(pos);
+    this.scene.add(mesh);
+    this.droppedGunMesh = mesh;
+    this.droppedGunSpinAngle = 0;
+  }
+
+  private removeDroppedGun(): void {
+    if (!this.droppedGunMesh) return;
+    this.scene.remove(this.droppedGunMesh);
+    this.droppedGunMesh.traverse(child => {
+      if (child instanceof THREE.Mesh) {
+        child.geometry?.dispose();
+        if (Array.isArray(child.material)) {
+          child.material.forEach(m => m.dispose());
+        } else {
+          (child.material as THREE.Material)?.dispose();
+        }
+      }
+    });
+    this.droppedGunMesh = null;
+  }
+
+  private updateDroppedGunPickup(dt: number): void {
+    if (!this.droppedGunMesh) return;
+
+    // Spin the dropped gun so it's visible and inviting
+    this.droppedGunSpinAngle += dt * 2.5;
+    this.droppedGunMesh.rotation.y = this.droppedGunSpinAngle;
+    this.droppedGunMesh.position.y = 0.35 + Math.sin(this.droppedGunSpinAngle * 0.8) * 0.15;
+
+    // Auto-pickup when the local player flies within range (no gun required)
+    if (!this.bird.hasGun()) {
+      const dist = this.bird.controller.position.distanceTo(this.droppedGunMesh.position);
+      if (dist < 3.5) {
+        this.removeDroppedGun();
+        if (!this.firearmSystem.isUnlocked()) this.firearmSystem.unlock();
+        this.bird.setGunVisible(true);
+        this.chatUI.addMessage('System', 'You picked up the gun! 🔫', true);
+      }
+    }
+  }
+
+  private updateEasterEggInput(): void {
+    const typed = this.readTypedLetters();
+    if (typed.length === 0) return;
+
+    this.easterEggBuffer = (this.easterEggBuffer + typed.join('')).slice(-6);
+    if (this.easterEggBuffer === 'pewpew') {
+      this.toggleGun();
+      this.easterEggBuffer = '';
+    }
+  }
+
+  private handleChatInput(message: string): void {
+    const trimmed = message.trim();
+    const normalized = trimmed.toLowerCase();
+
+    if (normalized === 'pewpew') {
+      this.toggleGun();
+      this.easterEggBuffer = '';
+      return;
+    }
+
+    this.multiplayer?.sendChat(message);
+  }
+
+  private readTypedLetters(): string[] {
+    const letters: string[] = [];
+    for (let code = 65; code <= 90; code++) {
+      const keyCode = `Key${String.fromCharCode(code)}`;
+      if (this.input.wasPressed(keyCode)) {
+        letters.push(String.fromCharCode(code).toLowerCase());
+      }
+    }
+    return letters;
+  }
+
   /** Handle pause, shop, leaderbird, achievements, minimap, and keyboard helper toggles. Returns true if update should bail. */
   private updateMenuToggles(): boolean {
     if (this.input.wasPausePressed()) {
@@ -1017,7 +1318,10 @@ export class Game {
     if (this.input.wasPressed('KeyH') && !this.paused && !this.settingsMenu.isVisible && !this.shopMenu.visible) {
       this.achievementsPanel.isVisible ? this.achievementsPanel.hide() : this.achievementsPanel.show();
     }
-    if (this.input.wasPressed('KeyM')) this.minimap.toggle();
+    if (this.input.wasPressed('KeyM') && !this.paused && !this.settingsMenu.isVisible && !this.shopMenu.visible) {
+      this.bird.controller.toggleWalkMode();
+    }
+    if (this.input.wasPressed('KeyO')) this.minimap.toggle();
     if (this.input.wasPressed('KeyP') && !this.paused && !this.settingsMenu.isVisible && !this.shopMenu.visible) this.pvpManager.toggleHub();
     if (this.input.wasPressed('KeyG') && !this.paused && !this.settingsMenu.isVisible && !this.shopMenu.visible) {
       this.murmurationPanel.isVisible ? this.murmurationPanel.hide() : this.murmurationPanel.show();
@@ -1027,9 +1331,81 @@ export class Game {
     return this.paused || this.shopMenu.visible || this.chatUI.isActive() || this.murmurationPanel.isVisible;
   }
 
+  private handleLassoBreakoutInput(dt: number): void {
+    this.breakoutPulseCooldown = Math.max(0, this.breakoutPulseCooldown - dt);
+    if (!this.horseLasso.isLocalPlayerLassoed()) {
+      this.lastBreakoutKey = '';
+      return;
+    }
+    if (this.chatUI.isActive() || this.paused || this.breakoutPulseCooldown > 0) return;
+
+    const breakoutKeys = ['KeyA', 'KeyD', 'KeyW', 'KeyS', 'Space'];
+    let pressedKey = '';
+    for (const code of breakoutKeys) {
+      if (this.input.wasPressed(code)) {
+        pressedKey = code;
+        break;
+      }
+    }
+    if (!pressedKey) return;
+
+    const pulse = pressedKey !== this.lastBreakoutKey ? 1.45 : 0.95;
+    this.multiplayer?.sendLassoBreakoutPulse(pulse);
+    this.breakoutPulseCooldown = 0.075;
+    this.lastBreakoutKey = pressedKey;
+  }
+
   /** Talon grab: input handling, pet/NPC pickup & release, weight penalty, NPC despawn safety. */
   private updateGrabSystem(dt: number): void {
-    if (this.input.wasRightMouseClicked()) {
+    const activeDrivingCar = this.drivingSystem.getActiveCar();
+    const isRidingHorse = this.playerState.isDriving && activeDrivingCar?.type === 'horse';
+    this.handleLassoBreakoutInput(dt);
+
+    // Horse-only lasso mechanic (replaces talon grab while riding horse)
+    if (isRidingHorse && activeDrivingCar) {
+      if (this.input.wasGrabPressed()) {
+        this.audio.playUIClick();
+        if (this.horseLasso.isActive() || this.horseLasso.isWindingUp()) {
+          this.horseLasso.release(() => this.multiplayer?.sendLassoRelease());
+        } else {
+          this.horseLasso.tryCast({
+            horsePosition: activeDrivingCar.position,
+            horseForward: new THREE.Vector3(-Math.sin(activeDrivingCar.heading), 0, -Math.cos(activeDrivingCar.heading)),
+            localPlayerId: this.multiplayer?.getPlayerId() ?? null,
+            npcs: this.npcManager.npcs,
+            remotePlayers: this.multiplayer ? this.multiplayer.getRemotePlayers() : [],
+            sendPlayerCast: (targetPlayerId: string) => this.multiplayer?.sendLassoCast(targetPlayerId),
+          });
+        }
+      }
+
+      this.horseLasso.update({
+        dt,
+        isRidingHorse: true,
+        horsePosition: activeDrivingCar.position,
+        horseForward: new THREE.Vector3(-Math.sin(activeDrivingCar.heading), 0, -Math.cos(activeDrivingCar.heading)),
+        horseHeading: activeDrivingCar.heading,
+        birdPosition: this.bird.controller.position,
+        birdForwardSpeed: this.bird.controller.forwardSpeed,
+        setBirdForwardSpeed: (speed: number) => { this.bird.controller.forwardSpeed = speed; },
+        remotePlayers: this.multiplayer ? this.multiplayer.getRemotePlayers() : [],
+        localPlayerId: this.multiplayer?.getPlayerId() ?? null,
+        npcs: this.npcManager.npcs,
+        sendPlayerCast: (targetPlayerId: string) => this.multiplayer?.sendLassoCast(targetPlayerId),
+      });
+      for (const msg of this.horseLasso.consumeFeedbackMessages()) {
+        this.hud.showStatusMessage(msg, '#ffcf6e', 1.7);
+      }
+      this.npcManager.update(dt, this.bird.controller.position);
+      return;
+    }
+
+    // If we left horse mode, clear active lasso state.
+    if (this.horseLasso.isActive() || this.horseLasso.isWindingUp()) {
+      this.horseLasso.release(() => this.multiplayer?.sendLassoRelease());
+    }
+
+    if (this.input.wasGrabPressed()) {
       if (this.grabSystem.isCarrying()) {
         if (this.grabSystem.isCarryingPet()) {
           const result = this.grabSystem.tryReleasePet(this.bird.controller);
@@ -1108,7 +1484,13 @@ export class Game {
     }
 
     if (this.grabSystem.isCarrying()) {
-      this.bird.controller.forwardSpeed *= this.grabSystem.getSpeedMultiplier();
+      // Carrying should limit top speed, not continuously drain all speed.
+      const carryCapMultiplier = this.grabSystem.getSpeedMultiplier();
+      const carrySpeedCap = Math.max(FLIGHT.BASE_SPEED * 1.15, FLIGHT.MAX_SPEED * carryCapMultiplier);
+      if (this.bird.controller.forwardSpeed > carrySpeedCap) {
+        const excess = this.bird.controller.forwardSpeed - carrySpeedCap;
+        this.bird.controller.forwardSpeed -= excess * Math.min(1, 6 * dt);
+      }
     }
 
     this.npcManager.update(dt, this.bird.controller.position);
@@ -1116,6 +1498,23 @@ export class Game {
     const grabbedNPC = this.grabSystem.getGrabbedNPC();
     if (grabbedNPC && (grabbedNPC.shouldDespawn || !this.npcManager.npcs.includes(grabbedNPC))) {
       this.grabSystem.forceRelease();
+    }
+
+    // Keep remote/player lasso effects active even while not riding horse
+    this.horseLasso.update({
+      dt,
+      isRidingHorse: false,
+      horsePosition: this.bird.controller.position,
+      horseForward: this.bird.controller.getForward(),
+      horseHeading: this.bird.controller.yawAngle,
+      birdPosition: this.bird.controller.position,
+      birdForwardSpeed: this.bird.controller.forwardSpeed,
+      setBirdForwardSpeed: (speed: number) => { this.bird.controller.forwardSpeed = speed; },
+      remotePlayers: this.multiplayer ? this.multiplayer.getRemotePlayers() : [],
+      localPlayerId: this.multiplayer?.getPlayerId() ?? null,
+    });
+    for (const msg of this.horseLasso.consumeFeedbackMessages()) {
+      this.hud.showStatusMessage(msg, '#ffcf6e', 1.7);
     }
   }
 
@@ -1324,7 +1723,11 @@ export class Game {
     }
     const activeDrivingCar = this.drivingSystem.getActiveCar();
     if (this.playerState.isDriving && activeDrivingCar) {
-      this.hud.updateDrivingHUD(activeDrivingCar.speed);
+      const breakout = this.horseLasso.getBreakoutProgress();
+      const hint = (activeDrivingCar.type === 'horse' && breakout.active)
+        ? `MASH WASD/SPACE TO BREAK (${Math.round(breakout.progress)}/${Math.round(breakout.target)})`
+        : '';
+      this.hud.updateDrivingHUD(activeDrivingCar.speed, hint);
     } else {
       this.hud.hideDrivingHUD();
     }
@@ -1578,7 +1981,7 @@ export class Game {
     // Always render main camera
     renderer.render(this.scene, this.cameraController.camera);
 
-    // PiP drop camera — throttled to every 3rd frame to avoid doubling GPU cost
+    // PiP drop camera
     if (this.dropCamera.shouldRenderThisFrame()) {
       const fullWidth = window.innerWidth;
       const fullHeight = window.innerHeight;
@@ -1591,6 +1994,8 @@ export class Game {
       renderer.setScissorTest(true);
       renderer.setScissor(vp.x, vp.y, vp.width, vp.height);
       renderer.setViewport(vp.x, vp.y, vp.width, vp.height);
+      // Clear depth so PiP camera doesn't compete with depth from the main pass.
+      renderer.clearDepth();
       renderer.render(this.scene, this.dropCamera.camera);
 
       // Restore
@@ -1623,6 +2028,7 @@ export class Game {
       this.multiplayer.disconnect();
       this.multiplayer = null;
     }
+    this.horseLasso.forceClearRemote();
   }
 
   private async handlePurchase(itemId: string): Promise<void> {
@@ -1801,6 +2207,7 @@ export class Game {
 
     // Dispose drop camera overlay
     this.dropCamera.dispose();
+    this.horseLasso.dispose();
 
     // Dispose renderer and remove canvas
     this.renderer.dispose();

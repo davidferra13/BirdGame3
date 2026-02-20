@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { clone as cloneSkeleton } from 'three/examples/jsm/utils/SkeletonUtils.js';
+import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
 import { clamp, lerp } from '../utils/MathUtils';
 import { AssetLoader } from '../systems/AssetLoader';
 import { createToonMaterial, convertToToon } from '../rendering/ToonUtils';
@@ -16,6 +17,15 @@ const ANIM_GLIDE = ['glide', 'soar', 'gliding'];
 const ANIM_IDLE  = ['idle', 'rest', 'standing'];
 const ANIM_DIVE  = ['dive', 'diving', 'swoop'];
 const ANIM_WALK  = ['walk', 'walking', 'ground'];
+const LEG_SIZE_SCALE = 1 / 3;
+const LEG_MODEL_PATH = '/models/characters/bird/legs/NewLeg1.obj';
+const LEG_TEXTURE_PATH = '/models/characters/bird/legs/2k_mercury.jpg';
+const HUGE_LEG_SCALE = 0.24;
+const HUGE_LEG_SIDE_OFFSET = 0.34;
+const HUGE_LEG_FORWARD_OFFSET = 0.28;
+
+let _legTemplatePromise: Promise<THREE.Group | null> | null = null;
+let _legTexture: THREE.Texture | null = null;
 
 // ─── Procedural bird (unchanged original) ───────────────────────
 
@@ -107,6 +117,7 @@ export function createBirdModel(): THREE.Group {
   bird.add(tail);
 
   // Scale the whole bird up
+  addRidiculousLegRig(bird, 'procedural');
   bird.scale.setScalar(1.5);
 
   return bird;
@@ -216,6 +227,7 @@ export async function loadBirdGLB(
 
   console.log(`Bird GLB loaded from ${modelPath}`);
   convertToToon(bird);
+  addRidiculousLegRig(bird, 'glb');
   return bird;
 }
 
@@ -270,6 +282,8 @@ export function animateWings(
   grounded = false,
   isBoosting = false,
 ): void {
+  animateRidiculousLegs(bird, time, speed, grounded);
+
   // GLB path: update the AnimationMixer and cross-fade between clips
   if (bird.userData.modelType === 'glb') {
     const mixer = bird.userData.mixer as THREE.AnimationMixer | undefined;
@@ -313,6 +327,203 @@ export function animateWings(
     if (leftWing) leftWing.rotation.z = flap;
     if (rightWing) rightWing.rotation.z = -flap;
   }
+}
+
+function loadLegTemplate(): Promise<THREE.Group | null> {
+  if (_legTemplatePromise) return _legTemplatePromise;
+
+  _legTemplatePromise = new Promise((resolve) => {
+    const loader = new OBJLoader();
+    loader.load(
+      LEG_MODEL_PATH,
+      (obj) => {
+        const template = new THREE.Group();
+        template.name = 'legAnatomyTemplate';
+        template.add(obj);
+
+        if (!_legTexture) {
+          try {
+            _legTexture = new THREE.TextureLoader().load(LEG_TEXTURE_PATH);
+            _legTexture.colorSpace = THREE.SRGBColorSpace;
+          } catch {
+            _legTexture = null;
+          }
+        }
+
+        obj.traverse((node) => {
+          if (!(node instanceof THREE.Mesh)) return;
+          node.castShadow = true;
+          node.receiveShadow = true;
+          node.geometry.computeVertexNormals();
+          node.material = createToonMaterial(0xffc14d, {
+            map: _legTexture ?? undefined,
+          });
+        });
+
+        // Recenter and pin the top of the leg at local y=0 so it can hang from bird belly.
+        const box = new THREE.Box3().setFromObject(template);
+        const center = new THREE.Vector3();
+        const size = new THREE.Vector3();
+        box.getCenter(center);
+        box.getSize(size);
+        obj.position.sub(center);
+        obj.position.y -= size.y * 0.5;
+
+        resolve(template);
+      },
+      undefined,
+      () => resolve(null),
+    );
+  });
+
+  return _legTemplatePromise;
+}
+
+function clearDefaultLegMeshes(leg: THREE.Group): void {
+  const disposableNames = ['upper', 'lowerPivot', 'lower', 'foot', 'legAnatomyMesh'];
+  for (const name of disposableNames) {
+    const node = leg.getObjectByName(name);
+    if (!node) continue;
+    leg.remove(node);
+    node.traverse((child) => {
+      if (child instanceof THREE.Mesh) {
+        child.geometry?.dispose();
+        if (Array.isArray(child.material)) {
+          child.material.forEach((m) => m.dispose());
+        } else {
+          child.material?.dispose();
+        }
+      }
+    });
+  }
+}
+
+function attachLegAnatomyMesh(rig: THREE.Group): void {
+  void loadLegTemplate().then((template) => {
+    if (!template || !rig.parent) return;
+
+    for (const side of [-1, 1] as const) {
+      const leg = rig.getObjectByName(side < 0 ? 'legLeft' : 'legRight') as THREE.Group | undefined;
+      if (!leg) continue;
+      clearDefaultLegMeshes(leg);
+
+      const mesh = template.clone(true);
+      mesh.name = 'legAnatomyMesh';
+      mesh.position.set(0, 0, HUGE_LEG_FORWARD_OFFSET);
+      mesh.scale.setScalar(HUGE_LEG_SCALE);
+      mesh.rotation.set(0, 0, 0);
+      if (side < 0) mesh.scale.x *= -1;
+      leg.add(mesh);
+    }
+  });
+}
+
+function addRidiculousLegRig(bird: THREE.Group, modelType: BirdModelType): void {
+  const existing = bird.getObjectByName('ridiculousLegRig');
+  if (existing) return;
+
+  const legColor = modelType === 'glb' ? 0xffb347 : 0xffcc00;
+  const footColor = 0xff7a33;
+
+  const rig = new THREE.Group();
+  rig.name = 'ridiculousLegRig';
+  rig.position.set(0, -0.06, 0.0);
+  rig.rotation.y = Math.PI; // Face legs forward (bird faces -Z)
+  rig.visible = false;
+  rig.userData.extension = 0;
+  rig.userData.modelType = modelType;
+
+  const makeLeg = (side: -1 | 1): THREE.Group => {
+    const leg = new THREE.Group();
+    leg.name = side < 0 ? 'legLeft' : 'legRight';
+    leg.position.x = side * HUGE_LEG_SIDE_OFFSET;
+
+    const upper = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.04, 0.05, 0.5, 8),
+      createToonMaterial(legColor),
+    );
+    upper.name = 'upper';
+    upper.position.y = -0.25;
+    leg.add(upper);
+
+    const lowerPivot = new THREE.Group();
+    lowerPivot.name = 'lowerPivot';
+    lowerPivot.position.y = -0.5;
+    leg.add(lowerPivot);
+
+    const lower = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.03, 0.04, 0.42, 8),
+      createToonMaterial(legColor),
+    );
+    lower.name = 'lower';
+    lower.position.y = -0.21;
+    lowerPivot.add(lower);
+
+    const foot = new THREE.Mesh(
+      new THREE.BoxGeometry(0.18, 0.05, 0.34),
+      createToonMaterial(footColor),
+    );
+    foot.name = 'foot';
+    foot.position.set(0, -0.45, 0.08);
+    lowerPivot.add(foot);
+
+    return leg;
+  };
+
+  rig.add(makeLeg(-1));
+  rig.add(makeLeg(1));
+  bird.add(rig);
+  attachLegAnatomyMesh(rig);
+}
+
+function animateRidiculousLegs(
+  bird: THREE.Group,
+  time: number,
+  speed: number,
+  grounded: boolean,
+): void {
+  const rig = bird.getObjectByName('ridiculousLegRig') as THREE.Group | undefined;
+  if (!rig) return;
+
+  const prev = (rig.userData.extension as number) ?? 0;
+  const target = grounded ? 1 : 0;
+  const extension = lerp(prev, target, grounded ? 0.35 : 0.25);
+  rig.userData.extension = extension;
+
+  if (extension < 0.02) {
+    rig.visible = false;
+    return;
+  }
+  rig.visible = true;
+
+  const modelType = (rig.userData.modelType as BirdModelType | undefined) ?? 'procedural';
+  // legBaseY = hip attachment point in bird-local space (body sphere bottom ≈ -0.25 for procedural)
+  const legBaseY = modelType === 'glb' ? -0.20 : -0.25;
+  rig.position.y = legBaseY - (1 - extension) * 0.08;
+  rig.scale.set(
+    LEG_SIZE_SCALE,
+    LEG_SIZE_SCALE * Math.max(0.02, extension * 1.15),
+    LEG_SIZE_SCALE,
+  );
+
+  const strideSpeed = 6 + clamp(speed / 8, 0, 4);
+  const speedFactor = clamp(speed / 5, 0, 1);
+  const stride = Math.sin(time * strideSpeed) * 0.65 * extension * speedFactor;
+
+  const left = rig.getObjectByName('legLeft') as THREE.Group | undefined;
+  const right = rig.getObjectByName('legRight') as THREE.Group | undefined;
+  const setLegPose = (leg: THREE.Group | undefined, phase: number): void => {
+    if (!leg) return;
+    const lowerPivot = leg.getObjectByName('lowerPivot') as THREE.Group | undefined;
+    leg.rotation.x = phase;
+    leg.rotation.z = phase * 0.18;
+    if (lowerPivot) {
+      lowerPivot.rotation.x = -phase * 0.75 + 0.25 * extension;
+    }
+  };
+
+  setLegPose(left, stride);
+  setLegPose(right, -stride);
 }
 
 /**

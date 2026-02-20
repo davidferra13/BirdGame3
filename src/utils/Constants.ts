@@ -7,7 +7,7 @@ export const FLIGHT = {
   DIVE_ACCELERATION: 40,
   SPEED_RECOVERY_RATE: 10,
   BRAKE_RATE: 25,
-  BRAKE_MIN_SPEED: 6, // S key brakes to this speed (slow, controlled cruising)
+  BRAKE_MIN_SPEED: 0, // S key brakes to a full stop in flight
 
   // Hover / landing
   HOVER_SPEED_THRESHOLD: 10,
@@ -37,7 +37,7 @@ export const FLIGHT = {
   AUTO_DESCENT_RATE: 1.2,
   AUTO_DESCENT_PITCH: -0.06, // Visible nose-down so bird pitch matches actual descent direction
 
-  // Fast descent (V2: Ctrl to descend)
+  // Fast descent (browser-safe default: K)
   FAST_DESCENT_SPEED: 25,
   FAST_DESCENT_RAMP_TIME: 0.2, // Smooth ramp prevents jerky velocity snap
 
@@ -471,6 +471,10 @@ export const DRIVING = {
   ENTER_MAX_ALTITUDE: 3.0,
   EXIT_OFFSET: 3.0,
   CAR_COUNT: 5,
+  MOTORCYCLE_COUNT: 2,
+  HELICOPTER_COUNT: 1,
+  PROP_PLANE_COUNT: 1,
+  HORSE_COUNT: 1,
 };
 
 // ============================================================================
@@ -628,6 +632,18 @@ export const PVP = {
   COVER_WINNER_BONUS: 80,
   COVER_PARTICIPATION_REWARD: 15,
   COVER_STATUE_BEACON_HEIGHT: 60,
+
+  // --- Combat mechanics (cross-mode) ---
+  COMBAT_BURST_RANGE: 26,       // Radius for Burst shockwave
+  COMBAT_BURST_KNOCKBACK: 16,   // Instant displacement applied to targets
+  COMBAT_BURST_SLOW_S: 2.5,     // Slow duration after getting Bursted
+  COMBAT_BURST_COOLDOWN_S: 10,  // Cooldown for Burst ability
+
+  COMBAT_MINE_RADIUS: 10,       // Trigger radius for mines
+  COMBAT_MINE_DURATION_S: 12,   // Lifetime for deployed mine
+  COMBAT_MINE_ROOT_S: 1.6,      // Hard root duration from mine trigger
+  COMBAT_MINE_SLOW_S: 2.2,      // Follow-up slow duration after root
+  COMBAT_MINE_COOLDOWN_S: 14,   // Cooldown for Mine deployment
 
   // Player colors (for poop tinting, markers, etc.)
   PLAYER_COLORS: [
@@ -787,3 +803,4 @@ export const MVM = {
   TEAM_A_COLOR: 0x4488ff,
   TEAM_B_COLOR: 0xff4444,
 };
+

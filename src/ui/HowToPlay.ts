@@ -1,3 +1,20 @@
+import {
+  BINDINGS_STORAGE_KEY,
+  DEFAULT_BINDINGS,
+  type KeyBindings,
+} from '../core/InputManager';
+import { bindingToDisplayName } from './KeyDisplay';
+
+function loadBindings(): KeyBindings {
+  try {
+    const stored = localStorage.getItem(BINDINGS_STORAGE_KEY);
+    if (stored) return { ...DEFAULT_BINDINGS, ...JSON.parse(stored) };
+  } catch {
+    // Fallback to defaults when storage is unavailable.
+  }
+  return { ...DEFAULT_BINDINGS };
+}
+
 export class HowToPlay {
   private container: HTMLElement;
   private visible = false;
@@ -25,14 +42,13 @@ export class HowToPlay {
       border: 2px solid rgba(255, 255, 255, 0.3);
       border-radius: 12px;
       padding: 30px;
-      max-width: 700px;
+      max-width: 760px;
       width: 90%;
       max-height: 80vh;
       overflow-y: auto;
       box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
     `;
 
-    // Title
     const title = document.createElement('div');
     title.style.cssText = `
       font-size: 32px;
@@ -42,10 +58,9 @@ export class HowToPlay {
       margin-bottom: 10px;
       text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
     `;
-    title.textContent = '🎮 HOW TO PLAY';
+    title.textContent = 'HOW TO PLAY';
     panel.appendChild(title);
 
-    // Subtitle
     const subtitle = document.createElement('div');
     subtitle.style.cssText = `
       text-align: center;
@@ -53,105 +68,90 @@ export class HowToPlay {
       margin-bottom: 30px;
       font-size: 14px;
     `;
-    subtitle.textContent = 'Master the skies and become the ultimate pooping bird!';
+    subtitle.textContent = 'Earn coins by hitting targets, then bank safely at the Sanctuary.';
     panel.appendChild(subtitle);
 
-    // Controls content
     const content = document.createElement('div');
     content.style.cssText = `
       color: #fff;
       line-height: 1.8;
     `;
 
-    const row = (key: string, desc: string) =>
+    const b = loadBindings();
+    const key = (action: keyof KeyBindings) => bindingToDisplayName(b, action);
+
+    const row = (keys: string, desc: string) =>
       `<div style="display:flex;justify-content:space-between;margin-bottom:6px;">` +
-      `<span style="color:#FFD700;font-family:'Courier New',monospace;font-weight:bold;min-width:120px;">${key}</span>` +
+      `<span style="color:#FFD700;font-family:'Courier New',monospace;font-weight:bold;min-width:180px;">${keys}</span>` +
       `<span style="color:#ddd;flex:1;text-align:right;">${desc}</span></div>`;
 
-    const section = (title: string, color: string, icon: string, rows: string) =>
+    const section = (heading: string, color: string, rows: string) =>
       `<div style="margin-bottom:20px;">` +
-      `<div style="font-size:18px;font-weight:bold;color:${color};margin-bottom:10px;">${icon} ${title}</div>` +
+      `<div style="font-size:18px;font-weight:bold;color:${color};margin-bottom:10px;">${heading}</div>` +
       `<div style="background:rgba(0,0,0,0.3);padding:14px;border-radius:8px;border-left:3px solid ${color};">${rows}</div></div>`;
 
     content.innerHTML =
-      section('Movement', '#87ceeb', '✈️',
-        row('W / ↑', 'Move Forward / Pitch Up') +
-        row('S / ↓', 'Brake / Slow Down') +
-        row('A / ←', 'Move Left / Turn Left') +
-        row('D / →', 'Move Right / Turn Right') +
-        row('Mouse', 'Look Around / Steer')
+      section('Movement', '#87ceeb',
+        row(`${key('moveForward')} / UP`, 'Move Forward / Pitch Up') +
+        row(`${key('moveBackward')} / DOWN`, 'Brake / Stop') +
+        row(`${key('moveLeft')} / LEFT`, 'Move Left / Turn Left') +
+        row(`${key('moveRight')} / RIGHT`, 'Move Right / Turn Right') +
+        row('MOUSE', 'Look Around / Steer'),
       ) +
-
-      section('Vertical Flight', '#80d0ff', '🔼',
-        row('SPACE', 'Ascend / Fly Up') +
-        row('L-CTRL', 'Fast Descend') +
-        row('R-SHIFT', 'Dive') +
-        row('L-SHIFT', 'Precision Descend (Slow)') +
-        row('SHIFT + SPACE', 'Dive Bomb') +
-        row('CAPS LOCK', 'Toggle Bomber Mode')
+      section('Vertical Flight', '#80d0ff',
+        row(key('ascend'), 'Ascend / Fly Up') +
+        row(key('fastDescend'), 'Fast Descend') +
+        row(key('dive'), 'Dive') +
+        row(key('gentleDescend'), 'Precise Descend (Slow)') +
+        row(`${key('dive')} + ${key('ascend')}`, 'Dive Bomb') +
+        row(key('bomberMode'), 'Toggle Bomber Mode'),
       ) +
-
-      section('Actions', '#FFD700', '💩',
+      section('Actions', '#FFD700',
         row('LEFT CLICK', 'Drop Poop') +
-        row('RIGHT CLICK', 'Free Look / Camera') +
-        row('T', 'Boost (Speed Burst)') +
-        row('Z', 'Interact / Bank / Land') +
-        row('` (Backtick)', 'U-Turn (180°)')
+        row('RIGHT CLICK', 'Free Look / Camera (Horse: Lasso)') +
+        row(key('boost'), 'Boost (Speed Burst)') +
+        row(key('interact'), 'Interact / Bank / Land') +
+        row(key('uTurn'), 'U-Turn (180)'),
       ) +
-
-      section('Abilities', '#FF80FF', '⚡',
-        row('J', 'Use Equipped Ability') +
-        row('U', 'Cycle Through Abilities')
+      section('Abilities', '#FF80FF',
+        row(key('ability'), 'Use Equipped Ability') +
+        row(key('abilityCycle'), 'Cycle Through Abilities'),
       ) +
-
-      section('Aerobatics', '#FF6B6B', '🌀',
-        row('Q', 'Front Flip') +
-        row('E', 'Back Flip') +
-        row('R', 'Barrel Roll Left') +
-        row('F', 'Barrel Roll Right') +
-        row('T', 'Corkscrew Left') +
-        row('Y', 'Corkscrew Right') +
-        row('X', 'Side Flip Left') +
-        row('C', 'Side Flip Right') +
-        row('V', 'Inverted Flip') +
-        row('N', 'Aileron Roll') +
-        row('ALT + Flip Key', 'Double Flip Modifier')
+      section('Aerobatics', '#FF6B6B',
+        row(key('frontFlip'), 'Front Flip') +
+        row(key('backFlip'), 'Back Flip') +
+        row(key('leftBarrelRoll'), 'Barrel Roll Left') +
+        row(key('rightBarrelRoll'), 'Barrel Roll Right') +
+        row(key('corkscrewLeft'), 'Corkscrew Left') +
+        row(key('corkscrewRight'), 'Corkscrew Right') +
+        row(key('sideFlipLeft'), 'Side Flip Left') +
+        row(key('sideFlipRight'), 'Side Flip Right') +
+        row(key('invertedFlip'), 'Inverted Flip') +
+        row(key('aileronRoll'), 'Aileron Roll') +
+        row(`${key('dive')} + Flip Key`, 'Double Flip Modifier'),
       ) +
-
-      section('Emotes', '#50C878', '🗣️',
-        row('1', 'Squawk') +
-        row('2', 'Flap') +
-        row('3', 'Spin') +
-        row('4', 'Salute')
+      section('Objective', '#50C878',
+        `<div style="margin-bottom:8px;"><strong>1. Earn Coins:</strong> Hit NPCs and targets with poop.</div>` +
+        `<div style="margin-bottom:8px;"><strong>2. Build Streaks:</strong> Chain hits for multiplier and faster gains.</div>` +
+        `<div style="margin-bottom:8px;"><strong>3. Manage Heat:</strong> More heat gives more reward but higher danger.</div>` +
+        `<div style="margin-bottom:8px;"><strong>4. Bank Often:</strong> Fly to the green beam and hold ${key('interact')} to bank.</div>` +
+        `<div style="margin-bottom:8px;"><strong>5. Stay Off The Ground:</strong> Getting grounded drops unbanked coins.</div>`,
       ) +
-
-      section('Menu', '#9B59B6', '⚙️',
-        row('ESC', 'Pause Menu')
+      section('Vehicles &amp; Mounts', '#FFA500',
+        row(`Approach + hold ${key('interact')}`, 'Enter car / mount horse') +
+        row(key('interact'), 'Exit car / dismount') +
+        row('WASD / MOUSE', 'Steer vehicle') +
+        row('RMB (on horse)', 'Cast lasso at NPCs or players') +
+        `<div style="margin-top:8px;color:#aaa;font-size:12px;">Cars earn heat — horses let you lasso targets!</div>`,
       ) +
-
-      section('Gameplay', '#FF6B6B', '🎯',
-        `<div style="margin-bottom:8px;"><strong>1. Hit Targets:</strong> Drop poop on NPCs to earn coins and increase your heat level</div>` +
-        `<div style="margin-bottom:8px;"><strong>2. Build Combos:</strong> Hit multiple targets in a row to build a streak multiplier</div>` +
-        `<div style="margin-bottom:8px;"><strong>3. Watch Your Heat:</strong> Higher heat = more wanted = police chase you!</div>` +
-        `<div style="margin-bottom:8px;"><strong>4. Bank Coins:</strong> Fly to the green beam (Sanctuary) to safely bank your coins</div>` +
-        `<div style="margin-bottom:8px;"><strong>5. Avoid Ground:</strong> Flying too low will ground you and lose coins!</div>`
-      ) +
-
-      section('Pro Tips', '#9B59B6', '💡',
-        `<div style="margin-bottom:6px;">• Aim for hotspots (red circles) for bonus coins</div>` +
-        `<div style="margin-bottom:6px;">• Higher altitude = more time for poop to fall</div>` +
-        `<div style="margin-bottom:6px;">• Bank regularly to avoid losing coins if grounded</div>` +
-        `<div style="margin-bottom:6px;">• Different NPCs give different point values</div>` +
-        `<div style="margin-bottom:6px;">• Maintain your combo for massive score multipliers</div>` +
-        `<div style="margin-bottom:6px;">• All keys are remappable in Settings → Controls</div>`
-      ) +
-
-      `<div style="text-align:center;margin-top:24px;padding-top:16px;border-top:1px solid rgba(255,255,255,0.2);` +
-      `color:rgba(255,255,255,0.5);font-size:13px;font-style:italic;">` +
-      `"Remember: With great power comes great responsibility...to poop on everything!" 💩</div>`;
+      section('Pro Tips', '#9B59B6',
+        `<div style="margin-bottom:6px;">- Aim for hotspots for bonus score windows.</div>` +
+        `<div style="margin-bottom:6px;">- Bank before risky low-altitude passes.</div>` +
+        `<div style="margin-bottom:6px;">- Rebind keys in Settings -> Controls anytime.</div>` +
+        `<div style="margin-bottom:6px;">- Use combos plus timely banking for fastest progression.</div>`,
+      );
     panel.appendChild(content);
 
-    // Close button
     const closeBtn = document.createElement('button');
     closeBtn.style.cssText = `
       display: block;

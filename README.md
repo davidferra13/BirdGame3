@@ -18,6 +18,11 @@ A multiplayer arcade seagull flight game with server-authoritative gameplay.
 - Achievements and challenges
 - Hotspot system with dynamic world events
 
+## Railway Compliance
+
+If you deploy this project on Railway, review `RAILWAY_COMPLIANCE.md` before each deployment.
+It documents prohibited-use categories from Railway Terms/Fair Use and the pre-deploy checks for this repo.
+
 ## Setup
 
 ### Prerequisites
@@ -77,6 +82,37 @@ pnpm run server:dev
 The client will be available at `http://localhost:5173`
 The server will run on `ws://localhost:3001`
 
+### Docker (Full Stack)
+
+Build and run both server + web containers:
+```bash
+pnpm run docker:up
+```
+
+Services:
+- Web client: `http://localhost:8080`
+- Game server (WebSocket): `ws://localhost:3300`
+
+Stop containers:
+```bash
+pnpm run docker:down
+```
+
+Run with Cloudflare quick tunnel (optional):
+```bash
+pnpm run docker:up:tunnel
+```
+Then check tunnel logs:
+```bash
+docker compose logs -f tunnel
+```
+
+Notes:
+- `docker-compose.yml` maps host `WS_PORT` (default `3300`) to container port `3001`.
+- `web` image bakes Vite env vars at build time from `.env` (`VITE_*` keys).
+- To override the web container WS endpoint for Docker builds only, set `DOCKER_VITE_WS_URL`.
+- For production, set `VITE_WS_URL` to your permanent `wss://` backend before building/deploying the web image.
+
 ### Production Build
 
 Build the client:
@@ -122,7 +158,7 @@ bird-game-3/
 - **WASD / Arrow Keys**: Turn and pitch
 - **Space**: Ascend
 - **Ctrl**: Fast descent
-- **Shift**: Dive
+- **Alt**: Dive
 - **Click**: Drop poop
 - **T**: Boost (cooldown)
 

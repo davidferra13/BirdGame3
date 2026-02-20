@@ -1,0 +1,15 @@
+.git
+.github
+.netlify
+.claude
+node_modules
+server/node_modules
+dist
+server/dist
+coverage
+*.log
+*.err.log
+*.out.log
+pnpm-debug.log*
+Dockerfile*
+docker-compose*.yml

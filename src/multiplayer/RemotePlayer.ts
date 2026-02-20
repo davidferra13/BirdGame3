@@ -244,7 +244,8 @@ export class RemotePlayer {
       // Wing animation only at near LOD
       this.animTime += dt;
       const speed = this.targetPosition.distanceTo(this.currentPosition) / Math.max(dt, 0.001);
-      animateWings(this.fullMesh, this.animTime, speed, false);
+      const isGrounded = this.currentPosition.y <= 2.0;
+      animateWings(this.fullMesh, this.animTime, speed, isGrounded);
 
       // Nametag faces camera
       this.nameTag.rotation.y = -this.currentYaw;

@@ -42,10 +42,12 @@ export class KeyboardHelper {
 
     const compactHints = [
       { key: 'WASD', label: 'Fly' },
+      { key: 'M', label: 'Walk Toggle' },
       { key: 'Space', label: 'Up' },
       { key: 'Caps', label: 'Bomber' },
-      { key: 'Shift', label: 'Soft Down' },
-      { key: 'Shift', label: 'Dive' },
+      { key: 'L-Shift', label: 'Soft Down' },
+      { key: 'K', label: 'Fast Down' },
+      { key: 'Alt', label: 'Dive' },
       { key: 'Click', label: 'Poop' },
       { key: 'R-Click', label: 'Grab NPC' },
       { key: 'T', label: 'Boost' },
@@ -95,9 +97,9 @@ export class KeyboardHelper {
       { key: 'S', action: 'Brake' },
       { key: 'Space', action: 'Ascend' },
       { key: 'Caps', action: 'Bomber Mode' },
-      { key: 'Shift', action: 'Precision Descend' },
-      { key: 'Ctrl', action: 'Fast Descent' },
-      { key: 'R-Shift', action: 'Dive' },
+      { key: 'L-Shift', action: 'Precision Descend' },
+      { key: 'K', action: 'Fast Descent' },
+      { key: 'Alt', action: 'Dive' },
       { key: 'T', action: 'Boost' },
     ];
 
@@ -113,7 +115,8 @@ export class KeyboardHelper {
       { key: 'B', action: 'Shop' },
       { key: 'L', action: 'LeaderBird' },
       { key: 'H', action: 'Achievements' },
-      { key: 'M', action: 'Minimap' },
+      { key: 'M', action: 'Walk Mode Toggle' },
+      { key: 'O', action: 'Minimap' },
       { key: 'Esc', action: 'Pause' },
       { key: 'F1', action: 'Hide Controls' },
     ];

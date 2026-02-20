@@ -40,6 +40,34 @@ export class Poop {
     this.trailLine.frustumCulled = false;
   }
 
+  /** Fire as a fast bullet — same visual as poop but with explicit velocity and no Y offset. */
+  spawnBullet(position: THREE.Vector3, direction: THREE.Vector3, speed: number): void {
+    this.alive = true;
+    this.grounded = false;
+    this.splatThisFrame = false;
+    this.age = 0;
+    this.mesh.visible = true;
+    this.trailLine.visible = true;
+    this.trailCount = 0;
+
+    this.mesh.geometry = Poop.geometry;
+    this.mesh.material = Poop.material;
+    this.mesh.rotation.set(0, 0, 0);
+    this.mesh.scale.setScalar(1);
+
+    this.mesh.position.copy(position);
+    this.velocity.copy(direction).multiplyScalar(speed);
+
+    for (let i = 0; i < Poop.TRAIL_LENGTH; i++) {
+      this.trailPositions[i * 3]     = position.x;
+      this.trailPositions[i * 3 + 1] = position.y;
+      this.trailPositions[i * 3 + 2] = position.z;
+    }
+    (this.trailLine.geometry.getAttribute('position') as THREE.BufferAttribute).needsUpdate = true;
+    this.trailLine.geometry.setDrawRange(0, 1);
+    (this.trailLine.material as THREE.LineBasicMaterial).opacity = 0.6;
+  }
+
   spawn(position: THREE.Vector3, birdForward: THREE.Vector3, birdSpeed: number): void {
     this.alive = true;
     this.grounded = false;
@@ -159,6 +187,7 @@ export class Poop {
   kill(): void {
     this.alive = false;
     this.grounded = false;
+    this.splatThisFrame = false;
     this.mesh.visible = false;
     this.trailLine.visible = false;
   }

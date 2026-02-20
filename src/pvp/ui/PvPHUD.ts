@@ -80,7 +80,7 @@ export class PvPHUD {
     }
 
     // Build state string for change detection
-    const stateStr = `${state.phase}|${Math.ceil(state.timeRemaining)}|${state.modeData?.taggedPlayerId || ''}|${state.modeData?.localCheckpoint || 0}`;
+    const stateStr = `${state.phase}|${Math.ceil(state.timeRemaining)}|${state.modeData?.taggedPlayerId || ''}|${state.modeData?.localCheckpoint || 0}|${Math.ceil(state.modeData?.combat?.burstCooldown || 0)}|${Math.ceil(state.modeData?.combat?.mineCooldown || 0)}|${Math.ceil(state.modeData?.combat?.rootedRemaining || 0)}`;
     if (stateStr !== this.lastStateStr) {
       this.lastStateStr = stateStr;
       this.fadeTimer = 3; // Reset fade timer on state change
@@ -116,12 +116,19 @@ export class PvPHUD {
 
   private updateModeStatus(state: PvPRoundState): void {
     const data = state.modeData;
+    const combat = data?.combat;
+    const burstCd = Math.ceil(Math.max(0, combat?.burstCooldown || 0));
+    const mineCd = Math.ceil(Math.max(0, combat?.mineCooldown || 0));
+    const rooted = (combat?.rootedRemaining || 0) > 0;
+    const slowed = (combat?.slowedRemaining || 0) > 0;
+    const mines = Math.max(0, combat?.mineCount || 0);
+    const combatHint = ` [5 Burst ${burstCd || 'READY'} | 6 Mine ${mineCd || 'READY'} (${mines})]`;
 
     switch (state.mode) {
       case 'poop-tag': {
         const isTagged = data?.taggedPlayerId === data?.localPlayerId;
-        this.statusText.textContent = 'POOP TAG';
-        this.standingText.textContent = isTagged ? "You're IT!" : "You're safe";
+        this.statusText.textContent = `POOP TAG${combatHint}`;
+        this.standingText.textContent = rooted ? 'Rooted!' : (isTagged ? "You're IT!" : (slowed ? 'Slowed' : "You're safe"));
         this.standingText.style.color = isTagged ? '#ff6644' : '#44ff88';
         break;
       }
@@ -129,17 +136,25 @@ export class PvPHUD {
         const cp = data?.localCheckpoint || 0;
         const total = data?.totalCheckpoints || 0;
         const rank = data?.localRank || '?';
-        this.statusText.textContent = 'RACE';
-        this.standingText.textContent = `CP ${cp}/${total} - ${rank}`;
+        this.statusText.textContent = `RACE${combatHint}`;
+        this.standingText.textContent = rooted ? 'Rooted!' : `CP ${cp}/${total} - ${rank}${slowed ? ' - Slowed' : ''}`;
         this.standingText.style.color = '#aaccff';
         break;
       }
       case 'poop-cover': {
         const hits = data?.localHits || 0;
         const rank = data?.localRank || '?';
-        this.statusText.textContent = 'SPLAT ATTACK';
-        this.standingText.textContent = `${hits} hits (${rank})`;
+        this.statusText.textContent = `SPLAT ATTACK${combatHint}`;
+        this.standingText.textContent = rooted ? 'Rooted!' : `${hits} hits (${rank})${slowed ? ' - Slowed' : ''}`;
         this.standingText.style.color = '#ffcc44';
+        break;
+      }
+      case 'heist': {
+        const scoreA = data?.scoreA ?? 0;
+        const scoreB = data?.scoreB ?? 0;
+        this.statusText.textContent = `HEIST${combatHint}`;
+        this.standingText.textContent = rooted ? 'Rooted!' : `${scoreA} - ${scoreB}${slowed ? ' - Slowed' : ''}`;
+        this.standingText.style.color = '#aaccff';
         break;
       }
     }

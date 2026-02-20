@@ -45,10 +45,6 @@ export class DropCamera {
   private _idealPos = new THREE.Vector3();
   private _idealLookAt = new THREE.Vector3();
 
-  // Throttle: only render PiP every N frames to cut GPU cost
-  private _frameCounter = 0;
-  private static readonly PIP_RENDER_INTERVAL = 3; // render every 3rd frame
-
   // Viewport dimensions (pixels)
   private pipX = 0;
   private pipY = 0;
@@ -106,11 +102,9 @@ export class DropCamera {
     return this.state !== 'inactive';
   }
 
-  /** Whether the PiP should actually draw this frame (throttled to every Nth frame). */
+  /** Whether the PiP should draw this frame. */
   shouldRenderThisFrame(): boolean {
-    if (this.state === 'inactive') return false;
-    this._frameCounter++;
-    return this._frameCounter % DropCamera.PIP_RENDER_INTERVAL === 0;
+    return this.state !== 'inactive';
   }
 
   /** Called every frame. Returns true if PiP should be rendered. */

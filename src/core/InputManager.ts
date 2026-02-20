@@ -33,6 +33,8 @@ export interface KeyBindings {
 export const RESERVED_BINDING_CODES = new Set<string>([
   'ControlLeft',
   'ControlRight',
+  'AltLeft',
+  'AltRight',
   'MetaLeft',
   'MetaRight',
 ]);
@@ -43,8 +45,8 @@ export const DEFAULT_BINDINGS: KeyBindings = {
   moveLeft: 'KeyA',
   moveRight: 'KeyD',
   ascend: 'Space',
-  fastDescend: 'KeyG',
-  dive: 'ShiftRight',
+  fastDescend: 'KeyK',
+  dive: 'AltLeft',
   boost: 'KeyT',
   interact: 'KeyZ',
   pause: 'Escape',
@@ -56,7 +58,7 @@ export const DEFAULT_BINDINGS: KeyBindings = {
   backFlip: 'KeyE',
   leftBarrelRoll: 'KeyR',
   rightBarrelRoll: 'KeyF',
-  corkscrewLeft: 'KeyT',
+  corkscrewLeft: 'KeyI',
   corkscrewRight: 'KeyY',
   sideFlipLeft: 'KeyX',
   sideFlipRight: 'KeyC',
@@ -110,6 +112,7 @@ export class InputManager {
   private touchDive = false;
   private touchBank = false;
   private touchUTurn = false;
+  private touchGrabPressed = false;
 
   // Store bound handlers for cleanup
   private _onKeyDown: (e: KeyboardEvent) => void;
@@ -122,15 +125,76 @@ export class InputManager {
   private _onPointerLockChange: () => void;
   private _onBlur: () => void;
 
+  private shouldBlockBrowserHotkeys(e: KeyboardEvent): boolean {
+    const target = e.target as HTMLElement | null;
+    const tag = target?.tagName;
+    const isEditable = !!target && (
+      target.isContentEditable ||
+      tag === 'INPUT' ||
+      tag === 'TEXTAREA' ||
+      tag === 'SELECT'
+    );
+    if (isEditable) return false;
+    const isCloseTabCombo = (e.ctrlKey || e.metaKey) && (e.code === 'KeyW' || e.key.toLowerCase() === 'w');
+    if (isCloseTabCombo) return true;
+    if (e.code === 'Escape' || e.key === 'Escape') return false;
+    // Only hard-block hotkeys while gameplay capture is active.
+    return this._pointerLocked;
+  }
+
+  private sanitizeBindings(): boolean {
+    let changed = false;
+    const setIfDifferent = (action: keyof KeyBindings, code: string) => {
+      if (this.bindings[action] !== code) {
+        this.bindings[action] = code;
+        changed = true;
+      }
+    };
+
+    const movementCodes = new Set<string>([
+      this.bindings.moveForward,
+      this.bindings.moveBackward,
+      this.bindings.moveLeft,
+      this.bindings.moveRight,
+      'ArrowUp',
+      'ArrowDown',
+      'ArrowLeft',
+      'ArrowRight',
+    ]);
+
+    if (movementCodes.has(this.bindings.pause) || this.bindings.pause === 'KeyW') {
+      setIfDifferent('pause', DEFAULT_BINDINGS.pause);
+    }
+
+    if (this.bindings.moveForward === this.bindings.pause) {
+      setIfDifferent('moveForward', DEFAULT_BINDINGS.moveForward);
+    }
+    if (this.bindings.moveBackward === this.bindings.pause) {
+      setIfDifferent('moveBackward', DEFAULT_BINDINGS.moveBackward);
+    }
+    if (this.bindings.moveLeft === this.bindings.pause) {
+      setIfDifferent('moveLeft', DEFAULT_BINDINGS.moveLeft);
+    }
+    if (this.bindings.moveRight === this.bindings.pause) {
+      setIfDifferent('moveRight', DEFAULT_BINDINGS.moveRight);
+    }
+
+    // Keep boost and aerobatics distinct in defaults.
+    if (this.bindings.boost === this.bindings.corkscrewLeft) {
+      setIfDifferent('corkscrewLeft', DEFAULT_BINDINGS.corkscrewLeft);
+    }
+
+    return changed;
+  }
+
   constructor() {
     this.bindings = this.loadBindings();
+    this.sanitizeBindings();
     // Force requested baseline remap:
     // Caps Lock = bomber mode, Left Shift = precision descend.
     this.bindings.bomberMode = 'CapsLock';
     this.bindings.gentleDescend = 'ShiftLeft';
-    if (this.bindings.dive === this.bindings.gentleDescend) {
-      this.bindings.dive = 'ShiftRight';
-    }
+    this.bindings.dive = 'AltLeft';
     if (RESERVED_BINDING_CODES.has(this.bindings.fastDescend)) {
       this.bindings.fastDescend = this.findSafeFastDescendBinding();
     }
@@ -141,6 +205,10 @@ export class InputManager {
 
     // ── Keyboard ──
     this._onKeyDown = (e: KeyboardEvent) => {
+      if (this.shouldBlockBrowserHotkeys(e)) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
       this._lastInputTimestamp = performance.now();
       if (!this.keysDown.has(e.code)) {
         this.keysPressed.add(e.code);
@@ -152,6 +220,10 @@ export class InputManager {
     window.addEventListener('keydown', this._onKeyDown);
 
     this._onKeyUp = (e: KeyboardEvent) => {
+      if (this.shouldBlockBrowserHotkeys(e)) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
       this.keysDown.delete(e.code);
     };
     window.addEventListener('keyup', this._onKeyUp);
@@ -212,11 +284,21 @@ export class InputManager {
 
     this._onPointerLockChange = () => {
       this._pointerLocked = document.pointerLockElement === document.body;
+      if (!this._pointerLocked) {
+        // Prevent free-look latch when pointer lock is lost mid-click.
+        this._rightMouseDown = false;
+        this._mouseDx = 0;
+        this._mouseDy = 0;
+      }
     };
     document.addEventListener('pointerlockchange', this._onPointerLockChange);
 
     this._onBlur = () => {
       this.keysDown.clear();
+      this._rightMouseDown = false;
+      this._mouseDx = 0;
+      this._mouseDy = 0;
+      this._scrollDelta = 0;
     };
     window.addEventListener('blur', this._onBlur);
 
@@ -255,8 +337,9 @@ export class InputManager {
   }
 
   private findSafeFastDescendBinding(): string {
-    const candidates = [DEFAULT_BINDINGS.fastDescend, 'KeyB', 'KeyH'];
+    const candidates = [DEFAULT_BINDINGS.fastDescend, 'KeyI', 'KeyO'];
     for (const candidate of candidates) {
+      if (RESERVED_BINDING_CODES.has(candidate)) continue;
       let inUse = false;
       for (const [action, code] of Object.entries(this.bindings)) {
         if (action !== 'fastDescend' && code === candidate) {
@@ -271,7 +354,35 @@ export class InputManager {
 
   setBinding(action: keyof KeyBindings, code: string): void {
     if (RESERVED_BINDING_CODES.has(code)) return;
+    if (action === 'pause') {
+      const disallowedPauseCodes = new Set<string>([
+        this.bindings.moveForward,
+        this.bindings.moveBackward,
+        this.bindings.moveLeft,
+        this.bindings.moveRight,
+        'ArrowUp',
+        'ArrowDown',
+        'ArrowLeft',
+        'ArrowRight',
+        'KeyW',
+      ]);
+      if (disallowedPauseCodes.has(code)) {
+        code = DEFAULT_BINDINGS.pause;
+      }
+    }
     (this.bindings as unknown as Record<string, string>)[action] = code;
+    if (action === 'moveForward' && this.bindings.pause === code) {
+      this.bindings.pause = DEFAULT_BINDINGS.pause;
+    }
+    if (action === 'moveBackward' && this.bindings.pause === code) {
+      this.bindings.pause = DEFAULT_BINDINGS.pause;
+    }
+    if (action === 'moveLeft' && this.bindings.pause === code) {
+      this.bindings.pause = DEFAULT_BINDINGS.pause;
+    }
+    if (action === 'moveRight' && this.bindings.pause === code) {
+      this.bindings.pause = DEFAULT_BINDINGS.pause;
+    }
     try {
       localStorage.setItem(BINDINGS_STORAGE_KEY, JSON.stringify(this.bindings));
     } catch { /* storage full or unavailable */ }
@@ -312,7 +423,7 @@ export class InputManager {
 
     // Visual joystick base (translucent ring, hidden until touch)
     const baseSize = Math.min(130, vw() * 0.22);
-    this.joyMaxDist = baseSize * 0.38;
+    this.joyMaxDist = baseSize * 0.55;
     this.joyBase = document.createElement('div');
     this.joyBase.style.cssText =
       `position:fixed;width:${baseSize}px;height:${baseSize}px;border-radius:50%;` +
@@ -391,6 +502,18 @@ export class InputManager {
     uTurnBtn.addEventListener('touchcancel', () => { this.touchUTurn = false; });
     root.appendChild(uTurnBtn);
 
+    // GRAB button (right column, above 180)
+    const grabBtn = makeActionBtn('GRAB', 'rgba(85,170,255,0.45)', '\u270B');
+    grabBtn.style.position = 'absolute';
+    grabBtn.style.bottom = `${clusterBottom + (btnSize + gap) * 2}px`;
+    grabBtn.style.right = `${clusterRight}px`;
+    grabBtn.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      this._lastInputTimestamp = performance.now();
+      this.touchGrabPressed = true;
+    });
+    root.appendChild(grabBtn);
+
     document.body.appendChild(root);
     this.touchControls = root;
   }
@@ -447,8 +570,8 @@ export class InputManager {
         this.joyAxis.v = Math.max(-1, Math.min(1, -clampedY / maxDist)); // up = positive
 
         // Map vertical axis to fly up / dive
-        this.touchAscend = this.joyAxis.v > 0.45;
-        this.touchDive = this.joyAxis.v < -0.45;
+        this.touchAscend = this.joyAxis.v > 0.6;
+        this.touchDive = this.joyAxis.v < -0.6;
 
         // Update visual thumb position
         if (this.joyThumb) {
@@ -491,8 +614,8 @@ export class InputManager {
     for (let i = 0; i < e.changedTouches.length; i++) {
       const t = e.changedTouches[i];
       if (t.identifier === this.camTouchId) {
-        this._mouseDx += (t.clientX - this.camLastPos.x) * 0.8;
-        this._mouseDy += (t.clientY - this.camLastPos.y) * 0.8;
+        this._mouseDx += (t.clientX - this.camLastPos.x) * 0.3;
+        this._mouseDy += (t.clientY - this.camLastPos.y) * 0.3;
         this.camLastPos.x = t.clientX;
         this.camLastPos.y = t.clientY;
       }
@@ -530,7 +653,11 @@ export class InputManager {
         break;
     }
     // Combine keyboard with touch joystick (whichever has larger magnitude)
-    const touch = name === 'horizontal' ? this.joyAxis.h : this.joyAxis.v;
+    const rawTouch = name === 'horizontal' ? this.joyAxis.h : this.joyAxis.v;
+    // Apply a quadratic response curve on touch to reduce sensitivity near center
+    const touch = this.isTouchDevice
+      ? Math.sign(rawTouch) * rawTouch * rawTouch * 0.8
+      : rawTouch;
     return Math.abs(touch) > Math.abs(kb) ? touch : kb;
   }
 
@@ -543,7 +670,7 @@ export class InputManager {
   }
 
   isDive(): boolean {
-    return this.isDown(this.bindings.dive) || this.isDown('ShiftRight');
+    return this.isDown(this.bindings.dive);
   }
 
   isGentleDescending(): boolean {
@@ -552,11 +679,11 @@ export class InputManager {
   }
 
   isMoveForwardHeld(): boolean {
-    return this.isDown(this.bindings.moveForward) || this.isDown('ArrowUp') || this.joyAxis.v > 0.25;
+    return this.isDown(this.bindings.moveForward) || this.isDown('ArrowUp') || this.joyAxis.v > 0.4;
   }
 
   isBrakeHeld(): boolean {
-    return this.isDown(this.bindings.moveBackward) || this.isDown('ArrowDown') || this.joyAxis.v < -0.25;
+    return this.isDown(this.bindings.moveBackward) || this.isDown('ArrowDown') || this.joyAxis.v < -0.4;
   }
 
   isDiveBomb(): boolean {
@@ -668,6 +795,10 @@ export class InputManager {
     return this._rightMouseClicked;
   }
 
+  wasGrabPressed(): boolean {
+    return this._rightMouseClicked || this.touchGrabPressed;
+  }
+
   /** Seconds since the last keyboard/mouse/touch input */
   getIdleTime(): number {
     return (performance.now() - this._lastInputTimestamp) / 1000;
@@ -681,6 +812,7 @@ export class InputManager {
     this._rightMouseClicked = false;
     this._scrollDelta = 0;
     this.touchUTurn = false;
+    this.touchGrabPressed = false;
     // touchDrop is held (not one-shot), so don't clear it here
   }
 }

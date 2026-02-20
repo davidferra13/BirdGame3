@@ -1,7 +1,7 @@
 /**
  * Main Game Server
  * Server-authoritative realtime multiplayer game server
- * with AOI filtering, backpressure handling, PvP, and racing.
+ * with global player state broadcasts, backpressure handling, PvP, and racing.
  */
 
 import WebSocket, { WebSocketServer } from 'ws';
@@ -17,7 +17,14 @@ import { HeistManager } from './HeistManager';
 interface AuthenticatedSocket extends WebSocket {
   playerId?: string;
   isAlive?: boolean;
+  isAdmin?: boolean;
 }
+
+/** Supabase UUIDs of admin users (player IDs start with these) */
+const ADMIN_USER_IDS: string[] = (process.env.ADMIN_USER_IDS || '')
+  .split(',')
+  .map((id) => id.trim())
+  .filter(Boolean);
 
 /** Maximum concurrent players */
 const MAX_PLAYERS = 500;
@@ -33,6 +40,22 @@ const CHAT_RATE_LIMIT_MS = 1000;
 const CHAT_MAX_LENGTH = 150;
 const WORLD_ID = (process.env.WORLD_ID || 'global-1').trim();
 
+type PvPModeId = 'poop-tag' | 'race' | 'poop-cover' | 'heist';
+type PvPSessionPhase = 'lobby' | 'countdown' | 'active' | 'results';
+
+interface PvPSession {
+  modeId: PvPModeId;
+  phase: PvPSessionPhase;
+  participants: Set<string>;
+  phaseEndsAt: number;
+  lastStateBroadcastAt: number;
+}
+
+const PVP_LOBBY_DURATION_MS = 2000;
+const PVP_COUNTDOWN_DURATION_MS = 3000;
+const PVP_RESULTS_DURATION_MS = 10000;
+const PVP_STATE_BROADCAST_INTERVAL_MS = 200;
+
 export class GameServer {
   private wss: WebSocketServer;
   private world: WorldState;
@@ -45,6 +68,9 @@ export class GameServer {
   private murmurationState: MurmurationState;
   private heistManager: HeistManager;
   private chatRateLimit: Map<string, number> = new Map();
+  private mutedPlayers: Set<string> = new Set();
+  private pvpSessions: Map<PvPModeId, PvPSession> = new Map();
+  private playerPvPSession: Map<string, PvPModeId> = new Map();
 
   constructor(port: number = 3001) {
     const httpServer = createServer();
@@ -203,13 +229,21 @@ export class GameServer {
         this.handleMurmurationChat(ws, message.data);
         break;
 
-      // PvP messages — broadcast to all connected clients
+      // PvP messages — server-authoritative session lifecycle + validated relay
       case 'pvp-join':
+        this.handlePvPJoin(ws, message.data);
+        break;
       case 'pvp-leave':
+        this.handlePvPLeave(ws);
+        break;
       case 'pvp-tag-transfer':
+        this.handlePvPTagTransfer(ws, message.data);
+        break;
       case 'pvp-checkpoint':
+        this.handlePvPCheckpoint(ws, message.data);
+        break;
       case 'pvp-hit':
-        this.broadcastPvPMessage(ws, message);
+        this.handlePvPStatueHit(ws, message.data);
         break;
 
       // Heist messages — server-authoritative
@@ -224,6 +258,17 @@ export class GameServer {
         break;
       case 'heist-score':
         this.handleHeistScore(ws, message.data);
+        break;
+
+      // Horse lasso (server-authoritative player wrangle)
+      case 'lasso-cast':
+        this.handleLassoCast(ws, message.data);
+        break;
+      case 'lasso-release':
+        this.handleLassoRelease(ws);
+        break;
+      case 'lasso-breakout':
+        this.handleLassoBreakout(ws, message.data);
         break;
 
       default:
@@ -273,6 +318,7 @@ export class GameServer {
 
     // Register client
     ws.playerId = playerId;
+    ws.isAdmin = ADMIN_USER_IDS.some((adminId) => playerId.startsWith(adminId));
     this.clients.set(playerId, ws);
 
     // Send welcome message (full snapshot for initial load)
@@ -282,6 +328,7 @@ export class GameServer {
         playerId,
         spawnPosition: spawnPos,
         worldState: this.world.getSnapshot(),
+        isAdmin: ws.isAdmin,
       },
     });
 
@@ -291,7 +338,11 @@ export class GameServer {
       data: { player: player.toState() },
     });
 
-    console.log(`Player joined: ${username} (${playerId}) [${this.clients.size}/${MAX_PLAYERS}]`);
+    if (ws.isAdmin) {
+      console.log(`[ADMIN] Admin joined: ${username} (${playerId}) [${this.clients.size}/${MAX_PLAYERS}]`);
+    } else {
+      console.log(`Player joined: ${username} (${playerId}) [${this.clients.size}/${MAX_PLAYERS}]`);
+    }
   }
 
   private handlePlayerUpdate(ws: AuthenticatedSocket, data: PlayerInput): void {
@@ -434,6 +485,15 @@ export class GameServer {
     const message = typeof data?.message === 'string' ? data.message.trim() : '';
     if (!message || message.length > CHAT_MAX_LENGTH) return;
 
+    // Admin commands (bypass rate limit and mute)
+    if (ws.isAdmin && message.startsWith('/')) {
+      this.handleAdminCommand(ws, player.username, message);
+      return;
+    }
+
+    // Block muted players
+    if (this.mutedPlayers.has(ws.playerId)) return;
+
     // Rate limit
     const now = Date.now();
     const lastChat = this.chatRateLimit.get(ws.playerId) || 0;
@@ -455,6 +515,114 @@ export class GameServer {
 
     // Let bots see the message so they can respond
     this.botManager.onExternalChat(ws.playerId!, player.username, message);
+  }
+
+  // --- Admin Commands ---
+
+  private handleAdminCommand(ws: AuthenticatedSocket, adminName: string, message: string): void {
+    const parts = message.slice(1).split(' ');
+    const cmd = parts[0].toLowerCase();
+    const args = parts.slice(1);
+
+    switch (cmd) {
+      case 'announce': {
+        const text = args.join(' ');
+        if (!text) break;
+        console.log(`[ADMIN] ${adminName} announced: ${text}`);
+        this.broadcast({
+          type: 'admin_announce',
+          data: { message: text, timestamp: Date.now() },
+        });
+        break;
+      }
+
+      case 'kick': {
+        const targetName = args[0];
+        if (!targetName) break;
+        const targetId = this.findPlayerIdByUsername(targetName);
+        if (!targetId) {
+          this.sendError(ws, `Player not found: ${targetName}`);
+          break;
+        }
+        const targetWs = this.clients.get(targetId);
+        if (targetWs) {
+          this.send(targetWs, { type: 'admin_kicked', data: { reason: 'Kicked by admin' } });
+          targetWs.close();
+        }
+        console.log(`[ADMIN] ${adminName} kicked ${targetName} (${targetId})`);
+        break;
+      }
+
+      case 'mute': {
+        const targetName = args[0];
+        if (!targetName) break;
+        const targetId = this.findPlayerIdByUsername(targetName);
+        if (!targetId) {
+          this.sendError(ws, `Player not found: ${targetName}`);
+          break;
+        }
+        this.mutedPlayers.add(targetId);
+        console.log(`[ADMIN] ${adminName} muted ${targetName} (${targetId})`);
+        // Confirm to admin via chat
+        this.send(ws, {
+          type: 'chat',
+          data: { playerId: 'server', username: '[Admin]', message: `Muted ${targetName}`, timestamp: Date.now() },
+        });
+        break;
+      }
+
+      case 'unmute': {
+        const targetName = args[0];
+        if (!targetName) break;
+        const targetId = this.findPlayerIdByUsername(targetName);
+        if (!targetId) {
+          this.sendError(ws, `Player not found: ${targetName}`);
+          break;
+        }
+        this.mutedPlayers.delete(targetId);
+        console.log(`[ADMIN] ${adminName} unmuted ${targetName} (${targetId})`);
+        this.send(ws, {
+          type: 'chat',
+          data: { playerId: 'server', username: '[Admin]', message: `Unmuted ${targetName}`, timestamp: Date.now() },
+        });
+        break;
+      }
+
+      case 'players': {
+        const list = Array.from(this.clients.entries())
+          .map(([id, client]) => {
+            const p = this.world.getPlayer(id);
+            return `${p?.username ?? id}${this.mutedPlayers.has(id) ? ' [muted]' : ''}`;
+          })
+          .join(', ');
+        this.send(ws, {
+          type: 'chat',
+          data: { playerId: 'server', username: '[Admin]', message: `Players: ${list}`, timestamp: Date.now() },
+        });
+        break;
+      }
+
+      default:
+        this.send(ws, {
+          type: 'chat',
+          data: {
+            playerId: 'server',
+            username: '[Admin]',
+            message: `Unknown command /${cmd}. Available: /announce <msg>, /kick <name>, /mute <name>, /unmute <name>, /players`,
+            timestamp: Date.now(),
+          },
+        });
+    }
+  }
+
+  /** Find a connected player's ID by their username (case-insensitive). */
+  private findPlayerIdByUsername(username: string): string | null {
+    const lower = username.toLowerCase();
+    for (const [id] of this.clients) {
+      const p = this.world.getPlayer(id);
+      if (p && p.username.toLowerCase() === lower) return id;
+    }
+    return null;
   }
 
   // --- MvM Queue ---
@@ -530,24 +698,261 @@ export class GameServer {
     this.heistManager.handleScoreRequest(ws.playerId, position);
   }
 
-  // --- PvP Broadcast ---
-
-  /**
-   * Broadcast PvP messages to all connected clients (except sender).
-   * Server acts as a relay — client-side PvPManager handles state.
-   */
-  private broadcastPvPMessage(ws: AuthenticatedSocket, message: ClientMessage): void {
+  private handleLassoCast(ws: AuthenticatedSocket, data: any): void {
     if (!ws.playerId) return;
 
-    const outgoing = JSON.stringify({
-      type: message.type,
-      data: { ...message.data, playerId: ws.playerId },
+    const targetId = typeof data?.targetId === 'string' ? data.targetId : '';
+    if (!targetId) return;
+
+    this.world.requestPlayerLasso(ws.playerId, targetId);
+  }
+
+  private handleLassoRelease(ws: AuthenticatedSocket): void {
+    if (!ws.playerId) return;
+    this.world.releaseLassoByAttacker(ws.playerId, 'released');
+  }
+
+  private handleLassoBreakout(ws: AuthenticatedSocket, data: any): void {
+    if (!ws.playerId) return;
+    const pulse = typeof data?.pulse === 'number' ? data.pulse : 1;
+    this.world.registerLassoBreakoutPulse(ws.playerId, pulse);
+  }
+
+  // --- PvP Sessions (Server-authoritative round lifecycle) ---
+
+  private isPvPModeId(modeId: string): modeId is PvPModeId {
+    return modeId === 'poop-tag' || modeId === 'race' || modeId === 'poop-cover' || modeId === 'heist';
+  }
+
+  private getPvPRoundDurationMs(modeId: PvPModeId): number {
+    switch (modeId) {
+      case 'poop-tag': return 120_000;
+      case 'race': return 90_000;
+      case 'poop-cover': return 75_000;
+      case 'heist': return 180_000;
+      default: return 90_000;
+    }
+  }
+
+  private getPvPSessionForPlayer(playerId: string): PvPSession | null {
+    const modeId = this.playerPvPSession.get(playerId);
+    if (!modeId) return null;
+    return this.pvpSessions.get(modeId) || null;
+  }
+
+  private buildPvPState(session: PvPSession, now: number): any {
+    const players = Array.from(session.participants).map((playerId) => {
+      const p = this.world.getPlayer(playerId);
+      return {
+        id: playerId,
+        username: p?.username || playerId,
+      };
     });
 
-    for (const [id, client] of this.clients) {
-      if (id === ws.playerId) continue;
-      if (client.readyState === WebSocket.OPEN && (client.bufferedAmount || 0) < MAX_BUFFER_SIZE) {
-        client.send(outgoing);
+    return {
+      mode: session.modeId,
+      phase: session.phase,
+      timeRemaining: Math.max(0, (session.phaseEndsAt - now) / 1000),
+      players,
+      serverTimestamp: now,
+    };
+  }
+
+  private broadcastPvPState(session: PvPSession): void {
+    const now = Date.now();
+    const state = this.buildPvPState(session, now);
+    const payload = JSON.stringify({ type: 'pvp-state-update', data: state });
+
+    for (const playerId of session.participants) {
+      const client = this.clients.get(playerId);
+      if (client && client.readyState === WebSocket.OPEN && (client.bufferedAmount || 0) < MAX_BUFFER_SIZE) {
+        client.send(payload);
+      }
+    }
+
+    session.lastStateBroadcastAt = now;
+  }
+
+  private broadcastToPvPSession(
+    session: PvPSession,
+    message: ServerMessage,
+    excludePlayerId?: string,
+  ): void {
+    const payload = JSON.stringify(message);
+    for (const playerId of session.participants) {
+      if (excludePlayerId && playerId === excludePlayerId) continue;
+      const client = this.clients.get(playerId);
+      if (client && client.readyState === WebSocket.OPEN && (client.bufferedAmount || 0) < MAX_BUFFER_SIZE) {
+        client.send(payload);
+      }
+    }
+  }
+
+  private removePlayerFromPvPSession(playerId: string): void {
+    const modeId = this.playerPvPSession.get(playerId);
+    if (!modeId) return;
+
+    const session = this.pvpSessions.get(modeId);
+    this.playerPvPSession.delete(playerId);
+    if (!session) return;
+
+    session.participants.delete(playerId);
+
+    if (session.participants.size === 0) {
+      this.pvpSessions.delete(modeId);
+      return;
+    }
+
+    // Keep session alive with remaining players.
+    this.broadcastPvPState(session);
+  }
+
+  private handlePvPJoin(ws: AuthenticatedSocket, data: any): void {
+    if (!ws.playerId) return;
+
+    const modeIdRaw = typeof data?.modeId === 'string' ? data.modeId.trim() : '';
+    if (!this.isPvPModeId(modeIdRaw)) {
+      this.sendError(ws, 'Invalid PvP mode');
+      return;
+    }
+    const modeId = modeIdRaw;
+    const now = Date.now();
+
+    // Leave previous session first if switching modes.
+    const existingMode = this.playerPvPSession.get(ws.playerId);
+    if (existingMode && existingMode !== modeId) {
+      this.removePlayerFromPvPSession(ws.playerId);
+    }
+
+    let session = this.pvpSessions.get(modeId);
+    if (!session) {
+      session = {
+        modeId,
+        phase: 'lobby',
+        participants: new Set<string>(),
+        phaseEndsAt: now + PVP_LOBBY_DURATION_MS,
+        lastStateBroadcastAt: 0,
+      };
+      this.pvpSessions.set(modeId, session);
+    } else if (session.phase === 'active' || session.phase === 'results') {
+      // Active/results rounds are closed for new participants; queue into next round.
+      session = {
+        modeId,
+        phase: 'lobby',
+        participants: new Set<string>(),
+        phaseEndsAt: now + PVP_LOBBY_DURATION_MS,
+        lastStateBroadcastAt: 0,
+      };
+      this.pvpSessions.set(modeId, session);
+    }
+
+    session.participants.add(ws.playerId);
+    this.playerPvPSession.set(ws.playerId, modeId);
+    this.broadcastPvPState(session);
+  }
+
+  private handlePvPLeave(ws: AuthenticatedSocket): void {
+    if (!ws.playerId) return;
+    this.removePlayerFromPvPSession(ws.playerId);
+  }
+
+  private handlePvPTagTransfer(ws: AuthenticatedSocket, data: any): void {
+    if (!ws.playerId) return;
+    const session = this.getPvPSessionForPlayer(ws.playerId);
+    if (!session || session.phase !== 'active') return;
+
+    const targetId = typeof data?.to === 'string' ? data.to : typeof data?.targetId === 'string' ? data.targetId : '';
+    if (!targetId || !session.participants.has(targetId)) return;
+
+    this.broadcastToPvPSession(session, {
+      type: 'pvp-tag-transfer',
+      data: { from: ws.playerId, to: targetId },
+    });
+  }
+
+  private handlePvPCheckpoint(ws: AuthenticatedSocket, data: any): void {
+    if (!ws.playerId) return;
+    const session = this.getPvPSessionForPlayer(ws.playerId);
+    if (!session || session.phase !== 'active') return;
+
+    const checkpoint = Number(data?.checkpoint);
+    if (!Number.isFinite(checkpoint)) return;
+
+    this.broadcastToPvPSession(session, {
+      type: 'pvp-checkpoint',
+      data: { playerId: ws.playerId, checkpoint },
+    });
+  }
+
+  private handlePvPStatueHit(ws: AuthenticatedSocket, data: any): void {
+    if (!ws.playerId) return;
+    const session = this.getPvPSessionForPlayer(ws.playerId);
+    if (!session || session.phase !== 'active') return;
+
+    this.broadcastToPvPSession(session, {
+      type: 'pvp-hit',
+      data: {
+        playerId: ws.playerId,
+        points: Number(data?.points) || 0,
+        accuracy: Number(data?.accuracy) || 0,
+        hitPosition: data?.hitPosition || null,
+      },
+    });
+  }
+
+  private updatePvPSessions(): void {
+    const now = Date.now();
+
+    for (const [modeId, session] of this.pvpSessions) {
+      // Prune disconnected players.
+      for (const participantId of Array.from(session.participants)) {
+        if (!this.clients.has(participantId)) {
+          session.participants.delete(participantId);
+          this.playerPvPSession.delete(participantId);
+        }
+      }
+
+      if (session.participants.size === 0) {
+        this.pvpSessions.delete(modeId);
+        continue;
+      }
+
+      let phaseChanged = false;
+      if (session.phase === 'lobby' && now >= session.phaseEndsAt) {
+        session.phase = 'countdown';
+        session.phaseEndsAt = now + PVP_COUNTDOWN_DURATION_MS;
+        phaseChanged = true;
+      } else if (session.phase === 'countdown' && now >= session.phaseEndsAt) {
+        session.phase = 'active';
+        session.phaseEndsAt = now + this.getPvPRoundDurationMs(session.modeId);
+        phaseChanged = true;
+
+        this.broadcastToPvPSession(session, {
+          type: 'pvp-mode-start',
+          data: this.buildPvPState(session, now),
+        });
+      } else if (session.phase === 'active' && now >= session.phaseEndsAt) {
+        session.phase = 'results';
+        session.phaseEndsAt = now + PVP_RESULTS_DURATION_MS;
+        phaseChanged = true;
+
+        this.broadcastToPvPSession(session, {
+          type: 'pvp-mode-end',
+          data: {
+            mode: session.modeId,
+            results: { reason: 'time-up' },
+          },
+        });
+      } else if (session.phase === 'results' && now >= session.phaseEndsAt) {
+        for (const participantId of session.participants) {
+          this.playerPvPSession.delete(participantId);
+        }
+        this.pvpSessions.delete(modeId);
+        continue;
+      }
+
+      if (phaseChanged || now - session.lastStateBroadcastAt >= PVP_STATE_BROADCAST_INTERVAL_MS) {
+        this.broadcastPvPState(session);
       }
     }
   }
@@ -555,9 +960,11 @@ export class GameServer {
   // --- Disconnect ---
 
   private handlePlayerDisconnect(playerId: string): void {
+    this.removePlayerFromPvPSession(playerId);
     this.world.removePlayer(playerId);
     this.clients.delete(playerId);
     this.chatRateLimit.delete(playerId);
+    this.mutedPlayers.delete(playerId);
 
     // Clean up MvM match/queue for disconnected player
     this.mvmManager.handlePlayerDisconnect(playerId);
@@ -703,7 +1110,10 @@ export class GameServer {
     // Update Heist matches (trophy physics, timers)
     this.heistManager.update(dt);
 
-    // Per-client AOI-filtered state sends (replaces old broadcast-all)
+    // Update PvP session lifecycle (lobby/countdown/active/results).
+    this.updatePvPSessions();
+
+    // Per-client global state sends (all players every tick)
     for (const [playerId, client] of this.clients) {
       if (client.readyState !== WebSocket.OPEN) continue;
 

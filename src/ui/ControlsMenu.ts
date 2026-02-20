@@ -1,4 +1,5 @@
 import { KeyBindings, DEFAULT_BINDINGS, BINDINGS_STORAGE_KEY, RESERVED_BINDING_CODES } from '../core/InputManager';
+import { codeToDisplayName } from './KeyDisplay';
 
 interface ActionEntry {
   key: keyof KeyBindings;
@@ -72,55 +73,6 @@ const CATEGORIES: ActionCategory[] = [
   },
 ];
 
-const SPECIAL_KEYS: Record<string, string> = {
-  Space: 'SPACE',
-  Tab: 'TAB',
-  ShiftLeft: 'L-SHIFT',
-  ShiftRight: 'R-SHIFT',
-  ControlLeft: 'L-CTRL',
-  ControlRight: 'R-CTRL',
-  AltLeft: 'L-ALT',
-  AltRight: 'R-ALT',
-  MetaLeft: 'L-META',
-  MetaRight: 'R-META',
-  Escape: 'ESC',
-  Enter: 'ENTER',
-  Backspace: 'BACKSPACE',
-  Delete: 'DELETE',
-  ArrowUp: 'UP',
-  ArrowDown: 'DOWN',
-  ArrowLeft: 'LEFT',
-  ArrowRight: 'RIGHT',
-  CapsLock: 'CAPS',
-  Backquote: '`',
-  Minus: '-',
-  Equal: '=',
-  BracketLeft: '[',
-  BracketRight: ']',
-  Backslash: '\\',
-  Semicolon: ';',
-  Quote: "'",
-  Comma: ',',
-  Period: '.',
-  Slash: '/',
-  NumpadEnter: 'NUM ENTER',
-  NumpadAdd: 'NUM +',
-  NumpadSubtract: 'NUM -',
-  NumpadMultiply: 'NUM *',
-  NumpadDivide: 'NUM /',
-  NumpadDecimal: 'NUM .',
-  NumLock: 'NUM LOCK',
-};
-
-function codeToDisplayName(code: string): string {
-  if (SPECIAL_KEYS[code]) return SPECIAL_KEYS[code];
-  if (code.startsWith('Key')) return code.slice(3);
-  if (code.startsWith('Digit')) return code.slice(5);
-  if (code.startsWith('Numpad')) return 'NUM ' + code.slice(6);
-  if (/^F\d+$/.test(code)) return code;
-  return code;
-}
-
 export class ControlsMenu {
   private container: HTMLElement;
   private visible = false;
@@ -173,7 +125,7 @@ export class ControlsMenu {
     // Subtitle hint
     const hint = document.createElement('div');
     hint.style.cssText = 'font-size:11px;color:#888;text-align:center;margin-bottom:20px;';
-    hint.textContent = 'Click a key to rebind. Press Escape to cancel. Ctrl/Meta keys are reserved.';
+    hint.textContent = 'Click a key to rebind. Press Escape to cancel. Ctrl/Alt/Meta keys are reserved.';
     panel.appendChild(hint);
 
     // Build category sections

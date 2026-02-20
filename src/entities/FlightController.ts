@@ -40,6 +40,7 @@ export class FlightController {
   isDiving = false;
   isDiveBombing = false;
   isGrounded = false;
+  isWalkMode = false;
   isPerched = false;   // grounded on a rooftop (not street level)
   isBoosting = false;
   boostJustActivated = false; // true for one frame on boost start
@@ -77,8 +78,6 @@ export class FlightController {
   private diveMomentumBoost = 0;
   private diveMomentumTimer = 0;
 
-  private walkDirection = 1;
-
   // Smooth scroll altitude control
   private scrollVelocity = 0;         // current smoothed scroll vertical velocity
 
@@ -90,6 +89,34 @@ export class FlightController {
 
   setBuildings(buildings: BuildingData[]): void {
     this.buildings = buildings;
+  }
+
+  toggleWalkMode(): boolean {
+    this.isWalkMode = !this.isWalkMode;
+
+    if (this.isWalkMode) {
+      this.snapToFloor();
+      this.isGrounded = true;
+      this.isPerched = this.position.y > FLIGHT.GROUND_ALTITUDE + 1;
+      this.isDiving = false;
+      this.isDiveBombing = false;
+      this.isBraking = false;
+      this.isGentleDescending = false;
+      this.isBomberMode = false;
+      this.pitchAngle = 0;
+      this.rollAngle = 0;
+      this.forwardSpeed = 0;
+      return true;
+    }
+
+    // Exiting walk mode always returns the player to flight.
+    this.isGrounded = false;
+    this.isPerched = false;
+    this.pitchAngle = 0;
+    this.rollAngle = 0;
+    this.position.y += 1.2;
+    this.forwardSpeed = FLIGHT.GROUND_TAKEOFF_SPEED;
+    return false;
   }
 
   update(dt: number, input: InputManager): void {
@@ -106,6 +133,13 @@ export class FlightController {
     // Ground / perch mode
     const rooftopY = this.getRooftopBelow();
     const floorY = Math.max(FLIGHT.GROUND_ALTITUDE, rooftopY);
+
+    // Forced walk mode: always stay grounded until explicitly toggled off.
+    if (this.isWalkMode) {
+      this.perchHeight = rooftopY;
+      this.handleGroundMode(dt, input, floorY);
+      return;
+    }
 
     // Landing requires: near ground + not ascending + (very low speed OR actively descending)
     const wantsToLand = this.forwardSpeed < FLIGHT.LANDING_SPEED_THRESHOLD || fastDescentInput || diveInput;
@@ -291,7 +325,7 @@ export class FlightController {
         this.divePeakSpeed = this.forwardSpeed;
       }
     } else if (this.isBraking) {
-      // S key: brake to minimum cruise speed (only slows down, never speeds up)
+      // S key: brake to a full stop in flight (only slows down, never speeds up)
       if (this.forwardSpeed > FLIGHT.BRAKE_MIN_SPEED) {
         const gap = FLIGHT.BRAKE_MIN_SPEED - this.forwardSpeed;
         const easeRate = 3.5; // Faster decel feels heavier
@@ -310,7 +344,10 @@ export class FlightController {
         this.diveMomentumTimer -= dt;
       }
 
-      targetSpeed = clamp(targetSpeed, FLIGHT.MIN_SPEED, FLIGHT.MAX_SPEED);
+      const speedCap = this.isBoosting
+        ? FLIGHT.MAX_SPEED * FLIGHT.BOOST_MULTIPLIER
+        : FLIGHT.MAX_SPEED;
+      targetSpeed = clamp(targetSpeed, FLIGHT.MIN_SPEED, speedCap);
       const gap = targetSpeed - this.forwardSpeed;
       // Different rates for accel vs decel (decel faster = more weight)
       const easeRate = gap > 0 ? 1.8 : 3.0;
@@ -459,30 +496,30 @@ export class FlightController {
     this.position.y = floorY;
     this.pitchAngle = 0;
 
-    const yawInput = input.getAxis('horizontal');
-    const forwardInput = input.getAxis('vertical');
+    const horizontalInput = input.getAxis('horizontal');
+    const verticalInput = input.getAxis('vertical');
+    const moveMag = Math.hypot(horizontalInput, verticalInput);
 
-    this.yawAngle += -yawInput * FLIGHT.YAW_RATE * 0.5 * dt;
+    // Full ground locomotion: walk in any direction with WASD/left stick.
+    if (moveMag > 0.1) {
+      const nx = horizontalInput / moveMag;
+      const nz = -verticalInput / moveMag;
 
-    // W = walk forward, S = walk backward
-    let targetSpeed: number;
-    if (forwardInput > 0) {
-      targetSpeed = FLIGHT.GROUND_WALK_SPEED;
-      this.walkDirection = 1;
-    } else if (forwardInput < 0) {
-      targetSpeed = FLIGHT.GROUND_WALK_BACKWARD_SPEED;
-      this.walkDirection = -1;
-    } else {
-      targetSpeed = 0;
-    }
+      // Face movement direction while grounded.
+      const targetYaw = Math.atan2(nx, nz);
+      const yawDelta = Math.atan2(Math.sin(targetYaw - this.yawAngle), Math.cos(targetYaw - this.yawAngle));
+      this.yawAngle += clamp(yawDelta, -FLIGHT.YAW_RATE * dt * 1.2, FLIGHT.YAW_RATE * dt * 1.2);
 
-    this.forwardSpeed = moveToward(this.forwardSpeed, targetSpeed, 20 * dt);
+      // Keep S-only backward walk slower for readability/feel.
+      const backwardOnly = verticalInput < -0.1 && Math.abs(horizontalInput) < 0.1;
+      const baseWalkSpeed = backwardOnly ? FLIGHT.GROUND_WALK_BACKWARD_SPEED : FLIGHT.GROUND_WALK_SPEED;
+      const targetSpeed = baseWalkSpeed * Math.min(1, moveMag);
+      this.forwardSpeed = moveToward(this.forwardSpeed, targetSpeed, 20 * dt);
 
-    if (this.forwardSpeed > 0.1) {
       _euler.set(0, this.yawAngle, 0, 'YXZ');
       _quat.setFromEuler(_euler);
       _forward.set(0, 0, -1).applyQuaternion(_quat);
-      _displacement.copy(_forward).multiplyScalar(this.forwardSpeed * this.walkDirection * dt);
+      _displacement.copy(_forward).multiplyScalar(this.forwardSpeed * dt);
 
       // Check collision before applying ground movement
       _newPos.copy(this.position).add(_displacement);
@@ -509,6 +546,8 @@ export class FlightController {
           this.forwardSpeed = FLIGHT.GROUND_TAKEOFF_SPEED * 0.5;
         }
       }
+    } else {
+      this.forwardSpeed = moveToward(this.forwardSpeed, 0, 20 * dt);
     }
 
     this.applySoftBoundary(dt);
@@ -622,6 +661,13 @@ export class FlightController {
       }
     }
     return maxH;
+  }
+
+  private snapToFloor(): void {
+    const rooftopY = this.getRooftopBelow();
+    const floorY = Math.max(FLIGHT.GROUND_ALTITUDE, rooftopY);
+    this.perchHeight = rooftopY;
+    this.position.y = floorY;
   }
 
   /** Check if a position would collide with any building */

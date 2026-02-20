@@ -1,7 +1,7 @@
 /**
  * Global Chat UI
  * Semi-transparent chat overlay with message history and text input.
- * Press Enter or T to open, Enter to send, Escape to close.
+ * Press Enter to open, Enter to send, Escape to close.
  */
 
 interface ChatMessageEntry {
@@ -107,7 +107,7 @@ export class ChatUI {
       // Don't open chat if already in an input field or menu
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
 
-      if ((e.key === 'Enter' || e.key === 't' || e.key === 'T') && !this.isOpen) {
+      if (e.key === 'Enter' && !this.isOpen) {
         // Only if pointer is locked (in-game)
         if (document.pointerLockElement) {
           e.preventDefault();

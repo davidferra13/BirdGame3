@@ -52,20 +52,29 @@ export interface WorldStateSnapshot {
   hotspots: HotspotState[];
 }
 
-// AOI-filtered state sent per-client each tick
+// Global state sent per-client each tick (all players)
 export interface FilteredWorldState {
   tick: number;
   timestamp: number;
-  nearPlayers: PlayerState[];
-  midPlayers: MidPlayerState[];
-  removedPlayerIds: string[];
+  players: PlayerState[];
   hotspots: HotspotState[];
   events: GameEvent[];
 }
 
 // Game events (PvP, races, etc.)
 export interface GameEvent {
-  type: 'pvp_hit' | 'race_created' | 'race_countdown' | 'race_started' | 'race_checkpoint' | 'race_update' | 'race_finished';
+  type:
+    | 'pvp_hit'
+    | 'race_created'
+    | 'race_countdown'
+    | 'race_started'
+    | 'race_checkpoint'
+    | 'race_update'
+    | 'race_finished'
+    | 'lasso_attach'
+    | 'lasso_release'
+    | 'lasso_windup'
+    | 'lasso_feedback';
   data: any;
 }
 
@@ -117,7 +126,8 @@ export interface ClientMessage {
     | 'race_create' | 'race_join' | 'race_ready' | 'chat'
     | 'pvp-join' | 'pvp-leave' | 'pvp-tag-transfer' | 'pvp-checkpoint' | 'pvp-hit'
     | 'mvm_queue_join' | 'mvm_queue_leave' | 'murmuration_chat'
-    | 'heist-join' | 'heist-grab' | 'heist-slam' | 'heist-score';
+    | 'heist-join' | 'heist-grab' | 'heist-slam' | 'heist-score'
+    | 'lasso-cast' | 'lasso-release' | 'lasso-breakout';
   data?: any;
 }
 
@@ -126,7 +136,8 @@ export interface ServerMessage {
     | 'pvp-mode-start' | 'pvp-mode-end' | 'pvp-state-update' | 'pvp-tag-transfer' | 'pvp-checkpoint' | 'pvp-hit'
     | 'mvm_match_found' | 'mvm_round_update' | 'mvm_match_end' | 'murmuration_chat' | 'murmuration_notification'
     | 'heist-match-start' | 'heist-round-start' | 'heist-trophy-grabbed' | 'heist-slam'
-    | 'heist-score' | 'heist-trophy-settled' | 'heist-trophy-reset' | 'heist-overtime' | 'heist-match-end';
+    | 'heist-score' | 'heist-trophy-settled' | 'heist-trophy-reset' | 'heist-overtime' | 'heist-match-end'
+    | 'admin_announce' | 'admin_kicked';
   data?: any;
 }
 

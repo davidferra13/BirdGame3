@@ -6,11 +6,15 @@ import { InputManager } from '../core/InputManager';
 const GOLD_COLOR = 0xffd700;
 const TAG_COLOR = 0x4a7a20;
 const TAG_GLOW_COLOR = 0x6B9B30;
+const LEG_GROUND_EPSILON = 0.01;
 
 export class Bird {
   readonly mesh: THREE.Group;
   readonly controller: FlightController;
   private elapsed = 0;
+  private gunAttachment: THREE.Group | null = null;
+  private gunVisible = false;
+  private legBounds = new THREE.Box3();
 
   // Idle animation blend (0 = active, 1 = fully idle)
   private idleBlend = 0;
@@ -33,6 +37,7 @@ export class Bird {
     this.mesh = createBirdModel();
     this.controller = new FlightController();
     this.buildWantedVisuals();
+    this.ensureGunAttachment();
     this.syncMesh();
 
     // Attempt to load the real GLB model in the background
@@ -46,6 +51,8 @@ export class Bird {
       if (glb) {
         swapBirdModel(this.mesh, glb);
         this.glbLoaded = true;
+        this.ensureGunAttachment();
+        this.setGunVisible(this.gunVisible);
         // Rebuild wanted visuals for the new geometry
         this.buildWantedVisuals();
         console.log('Bird: swapped to GLB model');
@@ -58,7 +65,6 @@ export class Bird {
   update(dt: number, input: InputManager): void {
     this.elapsed += dt;
     this.controller.update(dt, input);
-    this.syncMesh();
     animateWings(
       this.mesh,
       this.elapsed,
@@ -66,6 +72,7 @@ export class Bird {
       this.controller.isGrounded,
       this.controller.isBoosting // pass boost state
     );
+    this.syncMesh();
 
     // Idle animation — smooth blend in/out
     const idleTime = input.getIdleTime();
@@ -113,6 +120,16 @@ export class Bird {
   /** Update bird color based on equipped skin cosmetic */
   setColor(color: number): void {
     updateBirdColor(this.mesh, color);
+  }
+
+  setGunVisible(visible: boolean): void {
+    this.gunVisible = visible;
+    if (!this.gunAttachment) this.ensureGunAttachment();
+    if (this.gunAttachment) this.gunAttachment.visible = visible;
+  }
+
+  hasGun(): boolean {
+    return this.gunVisible;
   }
 
   private buildWantedVisuals(): void {
@@ -176,5 +193,59 @@ export class Bird {
   private syncMesh(): void {
     this.mesh.position.copy(this.controller.position);
     this.mesh.quaternion.copy(this.controller.getQuaternion());
+    this.mesh.updateMatrixWorld(true);
+
+    if (this.controller.isGrounded) {
+      // Snap the animated leg rig so its lowest point sits on the ground.
+      const legRig = this.mesh.getObjectByName('ridiculousLegRig');
+      if (legRig && legRig.visible) {
+        this.legBounds.setFromObject(legRig);
+        const lift = (this.controller.position.y + LEG_GROUND_EPSILON) - this.legBounds.min.y;
+        if (Number.isFinite(lift) && lift > 0) {
+          this.mesh.position.y += lift;
+          this.mesh.updateMatrixWorld(true);
+        }
+      }
+    }
+  }
+
+  private ensureGunAttachment(): void {
+    if (this.gunAttachment) {
+      this.mesh.remove(this.gunAttachment);
+    }
+
+    const gun = new THREE.Group();
+    gun.name = 'gunAttachment';
+
+    const body = new THREE.Mesh(
+      new THREE.BoxGeometry(0.55, 0.14, 0.12),
+      new THREE.MeshToonMaterial({ color: 0x2a2a2a }),
+    );
+    const barrel = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.025, 0.025, 0.42, 10),
+      new THREE.MeshToonMaterial({ color: 0x111111 }),
+    );
+    barrel.rotation.z = Math.PI / 2;
+    barrel.position.set(0.45, 0, 0); // tip of barrel in gun-local space (+X)
+
+    const grip = new THREE.Mesh(
+      new THREE.BoxGeometry(0.12, 0.24, 0.09),
+      new THREE.MeshToonMaterial({ color: 0x4a3420 }),
+    );
+    grip.position.set(-0.08, -0.16, 0);
+    grip.rotation.z = -0.28;
+
+    gun.add(body);
+    gun.add(barrel);
+    gun.add(grip);
+
+    // Approximate right-wing/hand position for both procedural and GLB birds.
+    // Rotate Y = -PI/2 so the barrel (local +X) points forward (bird local -Z).
+    gun.position.set(0.65, 0.35, -0.5);
+    gun.rotation.set(0.1, -Math.PI / 2, -0.1);
+    gun.visible = this.gunVisible;
+
+    this.mesh.add(gun);
+    this.gunAttachment = gun;
   }
 }

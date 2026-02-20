@@ -205,25 +205,10 @@ export class ThirdPersonCamera {
     const pitchOffset = Math.sin(this.freeLookPitchOffset) * offsetBehind * 0.4;
     idealPosition.y += pitchOffset;
 
-    // Compute look target: ahead of the bird (with free-look offset)
-    // Reduce lookahead during bombing mode so camera looks closer to directly below
-    const effectiveLookahead = this.drivingMode
-      ? CAMERA.DRIVING_LOOKAHEAD
-      : CAMERA.LOOKAHEAD_DISTANCE * (1 - this.bombingBlend * (1 - CAMERA.BOMBING_LOOKAHEAD_SCALE))
-        + this.bombingBlend * bombingSpeedNorm * 8;
-    const lookYawQuat = new THREE.Quaternion();
-    lookYawQuat.setFromAxisAngle(new THREE.Vector3(0, 1, 0), effectiveYaw);
-    const lookForward = new THREE.Vector3(0, 0, -1).applyQuaternion(lookYawQuat);
-
-    const lookTarget = ctrl.position
-      .clone()
-      .add(lookForward.multiplyScalar(effectiveLookahead));
-    lookTarget.y += 2; // slight upward bias to keep horizon visible
-    lookTarget.y -= Math.sin(this.freeLookPitchOffset) * effectiveLookahead * 0.5;
-    // Poop drop assist: tilt down toward drop zone
-    lookTarget.y += CAMERA.DROP_LOOK_DOWN_OFFSET * dropBlend;
-    // Bombing run: look down at the ground
-    lookTarget.y += CAMERA.BOMBING_LOOK_DOWN * this.bombingBlend;
+    // Keep player centered on screen by always looking at the bird anchor.
+    // Free-look still works by orbiting camera position, not by moving the look target off-player.
+    const lookTarget = ctrl.position.clone();
+    lookTarget.y += this.drivingMode ? 1.3 : 1.8;
 
     if (!this.initialized) {
       // Snap on first frame

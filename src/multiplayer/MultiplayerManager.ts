@@ -42,9 +42,7 @@ interface GameEvent {
 interface FilteredWorldState {
   tick: number;
   timestamp: number;
-  nearPlayers: PlayerState[];
-  midPlayers: MidPlayerState[];
-  removedPlayerIds: string[];
+  players: PlayerState[];
   hotspots: any[];
   events: GameEvent[];
 }
@@ -81,6 +79,10 @@ interface ChatMessage {
 
 // Event callbacks
 export interface MultiplayerEventCallbacks {
+  onConnectionStatus?: (status: 'connecting' | 'connected' | 'disconnected' | 'error', detail?: string) => void;
+  onServerError?: (message: string) => void;
+  onAdminAnnounce?: (data: { message: string; timestamp: number }) => void;
+  onAdminKicked?: (data: { reason: string }) => void;
   onPvPHitReceived?: (data: PvPHitResult) => void;
   onPvPHitDealt?: (data: PvPHitResult) => void;
   onPvPHitNearby?: (data: PvPHitResult) => void;
@@ -96,7 +98,7 @@ export interface MultiplayerEventCallbacks {
   onPvPStateUpdate?: (data: any) => void;
   onPvPTagTransfer?: (data: { from: string; to: string }) => void;
   onPvPCheckpoint?: (data: { playerId: string; checkpoint: number }) => void;
-  onPvPStatueHit?: (data: { playerId: string; points: number }) => void;
+  onPvPStatueHit?: (data: { playerId: string; points?: number; accuracy?: number; hitPosition?: any }) => void;
   // Heist mode events
   onHeistMatchStart?: (data: any) => void;
   onHeistTrophyGrabbed?: (data: any) => void;
@@ -106,12 +108,35 @@ export interface MultiplayerEventCallbacks {
   onHeistTrophyReset?: (data: any) => void;
   onHeistOvertime?: (data: any) => void;
   onHeistMatchEnd?: (data: any) => void;
+  // Horse lasso events
+  onLassoAttach?: (data: {
+    attackerId: string;
+    victimId: string;
+    durationMs: number;
+    tetherLength: number;
+    breakoutTarget?: number;
+  }) => void;
+  onLassoRelease?: (data: { attackerId: string; victimId: string; reason?: string }) => void;
+  onLassoWindup?: (data: { attackerId: string; victimId: string; windupMs: number }) => void;
+  onLassoFeedback?: (data: {
+    playerId: string;
+    status: string;
+    reason?: string;
+    cooldownMs?: number;
+    victimId?: string;
+    attackerId?: string;
+    breakoutProgress?: number;
+    breakoutTarget?: number;
+    tension?: number;
+    strain?: number;
+  }) => void;
 }
 
 export class MultiplayerManager {
   private ws: WebSocket | null = null;
   private connected = false;
   private playerId: string | null = null;
+  private _isAdmin = false;
   private remotePlayers: Map<string, RemotePlayer>;
   private hiddenPlayerPool: RemotePlayer[] = []; // pooled hidden players for reuse
   private scene: THREE.Scene;
@@ -146,6 +171,7 @@ export class MultiplayerManager {
   async connect(playerId: string, username: string): Promise<void> {
     const CONNECT_TIMEOUT = 5000;
     const worldId = (import.meta.env.VITE_WORLD_ID as string | undefined)?.trim() || 'global-1';
+    this.eventCallbacks.onConnectionStatus?.('connecting');
 
     return new Promise((resolve, reject) => {
       const timeoutId = setTimeout(() => {
@@ -157,6 +183,7 @@ export class MultiplayerManager {
           this.ws.close();
           this.ws = null;
         }
+        this.eventCallbacks.onConnectionStatus?.('error', 'Connection timed out after 5s');
         reject(new Error('Connection timed out after 5s'));
       }, CONNECT_TIMEOUT);
 
@@ -181,6 +208,7 @@ export class MultiplayerManager {
 
             if (message.type === 'welcome') {
               clearTimeout(timeoutId);
+              this.eventCallbacks.onConnectionStatus?.('connected');
               resolve();
             }
           } catch (error) {
@@ -188,20 +216,27 @@ export class MultiplayerManager {
           }
         };
 
-        this.ws.onerror = (error) => {
+        this.ws.onerror = (_error) => {
           clearTimeout(timeoutId);
-          console.error('WebSocket error:', error);
-          reject(error);
+          const detail = 'WebSocket connection failed';
+          this.eventCallbacks.onConnectionStatus?.('error', detail);
+          console.error('WebSocket error:', _error);
+          reject(new Error(detail));
         };
 
-        this.ws.onclose = () => {
+        this.ws.onclose = (event) => {
           clearTimeout(timeoutId);
           console.log('Disconnected from game server');
           this.connected = false;
+          this.eventCallbacks.onConnectionStatus?.(
+            'disconnected',
+            `Socket closed (code ${event.code}${event.reason ? `: ${event.reason}` : ''})`,
+          );
           this.cleanup();
         };
       } catch (error) {
         clearTimeout(timeoutId);
+        this.eventCallbacks.onConnectionStatus?.('error', String(error));
         reject(error);
       }
     });
@@ -214,6 +249,10 @@ export class MultiplayerManager {
         // Server may canonicalize player IDs (e.g. guest dedupe); always trust welcome ID.
         if (message.data?.playerId) {
           this.playerId = message.data.playerId;
+        }
+        if (message.data?.isAdmin) {
+          this._isAdmin = true;
+          console.log('[Admin] Joined as admin');
         }
         // Welcome uses legacy full snapshot for initial load
         if (message.data.worldState) {
@@ -291,8 +330,17 @@ export class MultiplayerManager {
         this.eventCallbacks.onHeistMatchEnd?.(message.data);
         break;
 
+      case 'admin_announce':
+        this.eventCallbacks.onAdminAnnounce?.(message.data);
+        break;
+
+      case 'admin_kicked':
+        this.eventCallbacks.onAdminKicked?.(message.data);
+        break;
+
       case 'error':
         console.error('Server error:', message.data.message);
+        this.eventCallbacks.onServerError?.(message.data.message);
         break;
 
       default:
@@ -329,15 +377,14 @@ export class MultiplayerManager {
   }
 
   /**
-   * Handle new AOI-filtered world state.
+   * Handle global world state (all remote players every tick).
    */
   private handleFilteredWorldState(state: FilteredWorldState): void {
     this.lastServerUpdate = Date.now();
 
     const activePlayerIds = new Set<string>();
 
-    // Near players: full detail
-    for (const playerState of state.nearPlayers) {
+    for (const playerState of state.players) {
       if (playerState.id === this.playerId) continue;
 
       activePlayerIds.add(playerState.id);
@@ -350,31 +397,7 @@ export class MultiplayerManager {
       this.visiblePlayerIds.add(playerState.id);
     }
 
-    // Mid players: reduced detail
-    for (const playerState of state.midPlayers) {
-      if (playerState.id === this.playerId) continue;
-
-      activePlayerIds.add(playerState.id);
-      let remotePlayer = this.remotePlayers.get(playerState.id);
-      if (!remotePlayer) {
-        remotePlayer = this.getOrCreateRemotePlayer(playerState.id, playerState.username);
-      }
-      remotePlayer.updatePositionOnly(playerState);
-      // Use full mesh for mid-range players so they don't appear as placeholder markers.
-      remotePlayer.setLOD('near');
-      this.visiblePlayerIds.add(playerState.id);
-    }
-
-    // Hide players that left AOI range (but don't destroy — they may return)
-    for (const removedId of state.removedPlayerIds) {
-      const remotePlayer = this.remotePlayers.get(removedId);
-      if (remotePlayer) {
-        remotePlayer.setLOD('hidden');
-        this.visiblePlayerIds.delete(removedId);
-      }
-    }
-
-    // Also hide any tracked players not in this tick's near/mid lists
+    // Hide any tracked players missing from this tick's global player list.
     for (const visibleId of this.visiblePlayerIds) {
       if (!activePlayerIds.has(visibleId)) {
         const rp = this.remotePlayers.get(visibleId);
@@ -410,6 +433,18 @@ export class MultiplayerManager {
         break;
       case 'race_finished':
         this.eventCallbacks.onRaceFinished?.(event.data);
+        break;
+      case 'lasso_attach':
+        this.eventCallbacks.onLassoAttach?.(event.data);
+        break;
+      case 'lasso_release':
+        this.eventCallbacks.onLassoRelease?.(event.data);
+        break;
+      case 'lasso_windup':
+        this.eventCallbacks.onLassoWindup?.(event.data);
+        break;
+      case 'lasso_feedback':
+        this.eventCallbacks.onLassoFeedback?.(event.data);
         break;
     }
   }
@@ -547,9 +582,9 @@ export class MultiplayerManager {
     this.send({ type: 'pvp-checkpoint', data: { checkpoint } });
   }
 
-  sendPvPStatueHit(points: number): void {
+  sendPvPStatueHit(points: number, accuracy?: number, hitPosition?: { x: number; y: number; z: number }): void {
     if (!this.connected || !this.ws) return;
-    this.send({ type: 'pvp-hit', data: { points } });
+    this.send({ type: 'pvp-hit', data: { points, accuracy, hitPosition } });
   }
 
   // --- Heist Messages ---
@@ -572,6 +607,23 @@ export class MultiplayerManager {
   sendHeistScore(position: { x: number; y: number; z: number }): void {
     if (!this.connected || !this.ws) return;
     this.send({ type: 'heist-score', data: { position } });
+  }
+
+  // --- Horse Lasso ---
+
+  sendLassoCast(targetId: string): void {
+    if (!this.connected || !this.ws) return;
+    this.send({ type: 'lasso-cast', data: { targetId } });
+  }
+
+  sendLassoRelease(): void {
+    if (!this.connected || !this.ws) return;
+    this.send({ type: 'lasso-release', data: {} });
+  }
+
+  sendLassoBreakoutPulse(pulse: number = 1): void {
+    if (!this.connected || !this.ws) return;
+    this.send({ type: 'lasso-breakout', data: { pulse } });
   }
 
   // --- Update Loop ---
@@ -620,7 +672,15 @@ export class MultiplayerManager {
     return Array.from(this.remotePlayers.values());
   }
 
+  getRemotePlayerById(playerId: string): RemotePlayer | null {
+    return this.remotePlayers.get(playerId) ?? null;
+  }
+
   getPlayerId(): string | null {
     return this.playerId;
+  }
+
+  isAdmin(): boolean {
+    return this._isAdmin;
   }
 }

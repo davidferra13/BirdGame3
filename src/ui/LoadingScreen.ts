@@ -15,7 +15,7 @@ export class LoadingScreen {
 
   constructor() {
     this.loadingTips = [
-      'Tip: Press SPACE to ascend and CTRL to descend',
+      'Tip: Press SPACE to ascend and K to descend',
       'Tip: Hit NPCs to earn coins and build your streak',
       'Tip: Banking in the sanctuary saves your coins',
       'Tip: Watch your heat level - get wanted at 5+',
@@ -324,3 +324,4 @@ export class LoadingScreen {
     }
   }
 }
+

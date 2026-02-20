@@ -59,7 +59,47 @@ For production, enable email/password auth:
 
 ## Part 2: Server Deployment
 
+### Docker-first option (recommended baseline)
+
+This repository now includes:
+- `docker/server.Dockerfile` (production server image)
+- `docker/web.Dockerfile` (production static client image via nginx)
+- `docker-compose.yml` (server + web + optional Cloudflare tunnel profile)
+
+Build/run full stack locally:
+```bash
+pnpm run docker:up
+```
+
+Stop stack:
+```bash
+pnpm run docker:down
+```
+
+Optional quick public tunnel for testing:
+```bash
+pnpm run docker:up:tunnel
+docker compose logs -f tunnel
+```
+
+If your root `.env` has a non-local `VITE_WS_URL`, you can keep Docker local builds pointed at localhost by setting:
+```bash
+DOCKER_VITE_WS_URL=ws://localhost:3300
+```
+
+Build only server image (for Railway/Render/Fly container deploy):
+```bash
+docker build -f docker/server.Dockerfile -t bird-game-server:latest .
+```
+
+Run server image:
+```bash
+docker run --rm -p 3300:3001 --env-file .env -e PORT=3001 bird-game-server:latest
+```
+
 ### Option A: Railway (Recommended)
+
+Before deploying to Railway, review `RAILWAY_COMPLIANCE.md` and confirm the repository is only used for game hosting and does not include prohibited workloads.
 
 1. **Create Railway Account**
    - Go to [railway.app](https://railway.app)
@@ -278,6 +318,7 @@ Monitor these metrics:
 - [ ] Error tracking enabled
 - [ ] Server logs accessible
 - [ ] Backups enabled (Supabase)
+- [ ] `RAILWAY_COMPLIANCE.md` reviewed (mirrors/userbots, crypto miners, DMCA abuse, torrent aggregators, VNC/virtual desktops, illegal activity all excluded)
 
 ### Load Testing
 

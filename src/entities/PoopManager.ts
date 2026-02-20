@@ -159,14 +159,14 @@ export class PoopManager {
     this.raycaster.far = PoopManager.RAYCAST_MAX_DISTANCE;
   }
 
-  update(dt: number, bird: Bird, input: InputManager, carriedNPC?: NPC | null): void {
+  update(dt: number, bird: Bird, input: InputManager, carriedNPC?: NPC | null, allowDrop: boolean = true): void {
     // Cooldown
     if (this.cooldownTimer > 0) {
       this.cooldownTimer -= dt;
     }
 
     // Spawn on input
-    if (input.isPoop() && this.cooldownTimer <= 0) {
+    if (allowDrop && input.isPoop() && this.cooldownTimer <= 0) {
       if (carriedNPC) {
         // Poop sticks to the carried NPC instead of falling
         this.poopOnNPC(carriedNPC);
@@ -316,6 +316,18 @@ export class PoopManager {
 
   // Reusable array to avoid per-call allocation from .filter()
   private _activePoopsCache: Poop[] = [];
+
+  private static readonly BULLET_SPEED = 75; // units/second — fast enough to feel like a bullet
+
+  /** Fire a poop-projectile from the gun. Same asset as poop but flies fast. */
+  fireBullet(muzzlePos: THREE.Vector3, direction: THREE.Vector3): void {
+    let target = this.pool.find(p => !p.alive);
+    if (!target) {
+      target = this.pool[0];
+      target.kill();
+    }
+    target.spawnBullet(muzzlePos, direction, PoopManager.BULLET_SPEED);
+  }
 
   getActivePoops(): Poop[] {
     const result = this._activePoopsCache;
