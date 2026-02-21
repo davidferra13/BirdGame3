@@ -13,6 +13,13 @@ interface Vector3 {
   z: number;
 }
 
+interface Snapshot {
+  position: Vector3;
+  yaw: number;
+  pitch: number;
+  timestamp: number;
+}
+
 interface PlayerState {
   id: string;
   username: string;
@@ -52,13 +59,18 @@ export class RemotePlayer {
   private activeMesh: THREE.Object3D | null = null;
   private lodLevel: LODLevel = 'hidden';
 
-  // Interpolation
+  // Snapshot interpolation buffer
+  private snapshots: Snapshot[] = [];
+  private readonly INTERP_DELAY_MS = 100; // render 100ms behind server for smooth interp
+  private readonly MAX_SNAPSHOTS = 30;
+
+  // Interpolated render state
   private currentPosition: THREE.Vector3;
-  private targetPosition: THREE.Vector3;
   private currentYaw = 0;
-  private targetYaw = 0;
   private currentPitch = 0;
-  private targetPitch = 0;
+
+  // For wing animation speed estimation
+  private prevFramePosition: THREE.Vector3;
 
   // State
   private heat = 0;
@@ -102,7 +114,7 @@ export class RemotePlayer {
     this.simpleMesh.add(simpleTag);
 
     this.currentPosition = new THREE.Vector3();
-    this.targetPosition = new THREE.Vector3();
+    this.prevFramePosition = new THREE.Vector3();
 
     // Start hidden — will be set by MultiplayerManager
   }
@@ -181,14 +193,20 @@ export class RemotePlayer {
   // --- State Updates ---
 
   updateFromServer(state: PlayerState): void {
-    this.targetPosition.set(state.position.x, state.position.y, state.position.z);
-    this.targetYaw = state.yaw;
-    this.targetPitch = state.pitch;
+    // Push snapshot for interpolation
+    this.snapshots.push({
+      position: { x: state.position.x, y: state.position.y, z: state.position.z },
+      yaw: state.yaw,
+      pitch: state.pitch,
+      timestamp: Date.now(),
+    });
+    if (this.snapshots.length > this.MAX_SNAPSHOTS) this.snapshots.shift();
+
+    // Non-positional state applies immediately
     this.heat = state.heat;
     this.state = state.state;
     this.stunned = state.stunned || false;
 
-    // Only update nameplate when wanted status actually changes
     if (state.wantedFlag !== this.lastWantedFlag) {
       this.lastWantedFlag = state.wantedFlag;
       this.wantedFlag = state.wantedFlag;
@@ -197,15 +215,19 @@ export class RemotePlayer {
       this.wantedFlag = state.wantedFlag;
     }
 
-    // Show stun visual
     if (this.stunned) {
       this.showStunEffect();
     }
   }
 
   updatePositionOnly(state: MidPlayerState): void {
-    this.targetPosition.set(state.position.x, state.position.y, state.position.z);
-    this.targetYaw = state.yaw;
+    this.snapshots.push({
+      position: { x: state.position.x, y: state.position.y, z: state.position.z },
+      yaw: state.yaw,
+      pitch: 0,
+      timestamp: Date.now(),
+    });
+    if (this.snapshots.length > this.MAX_SNAPSHOTS) this.snapshots.shift();
 
     if (state.wantedFlag !== this.lastWantedFlag) {
       this.lastWantedFlag = state.wantedFlag;
@@ -228,22 +250,55 @@ export class RemotePlayer {
   update(dt: number): void {
     if (this.lodLevel === 'hidden') return;
 
-    // Interpolate position
-    const lerpSpeed = 10;
-    this.currentPosition.lerp(this.targetPosition, lerpSpeed * dt);
+    this.prevFramePosition.copy(this.currentPosition);
 
-    // Interpolate rotation
-    this.currentYaw = this.lerpAngle(this.currentYaw, this.targetYaw, lerpSpeed * dt);
-    this.currentPitch = this.lerpAngle(this.currentPitch, this.targetPitch, lerpSpeed * dt);
+    // --- Snapshot interpolation ---
+    // Render at (now - INTERP_DELAY_MS) to always have two bracketing snapshots
+    const renderTime = Date.now() - this.INTERP_DELAY_MS;
+
+    let interpolated = false;
+    if (this.snapshots.length >= 2) {
+      // Find the pair of snapshots bracketing renderTime
+      for (let i = 0; i < this.snapshots.length - 1; i++) {
+        const a = this.snapshots[i];
+        const b = this.snapshots[i + 1];
+        if (a.timestamp <= renderTime && b.timestamp >= renderTime) {
+          const span = b.timestamp - a.timestamp;
+          const t = span > 0 ? (renderTime - a.timestamp) / span : 1;
+          this.currentPosition.set(
+            a.position.x + (b.position.x - a.position.x) * t,
+            a.position.y + (b.position.y - a.position.y) * t,
+            a.position.z + (b.position.z - a.position.z) * t,
+          );
+          this.currentYaw = this.lerpAngle(a.yaw, b.yaw, t);
+          this.currentPitch = this.lerpAngle(a.pitch, b.pitch, t);
+          interpolated = true;
+          break;
+        }
+      }
+    }
+
+    if (!interpolated && this.snapshots.length > 0) {
+      // Buffer hasn't filled or we're ahead of history — LERP toward latest snapshot
+      const latest = this.snapshots[this.snapshots.length - 1];
+      const lerpSpeed = Math.min(1, 15 * dt);
+      this.currentPosition.lerp(
+        new THREE.Vector3(latest.position.x, latest.position.y, latest.position.z),
+        lerpSpeed,
+      );
+      this.currentYaw = this.lerpAngle(this.currentYaw, latest.yaw, lerpSpeed);
+      this.currentPitch = this.lerpAngle(this.currentPitch, latest.pitch, lerpSpeed);
+    }
 
     if (this.lodLevel === 'near' && this.activeMesh === this.fullMesh) {
       this.fullMesh.position.copy(this.currentPosition);
       this.fullMesh.rotation.y = this.currentYaw;
       this.fullMesh.rotation.x = this.currentPitch;
 
-      // Wing animation only at near LOD
+      // Wing animation at near LOD — speed derived from actual movement this frame
       this.animTime += dt;
-      const speed = this.targetPosition.distanceTo(this.currentPosition) / Math.max(dt, 0.001);
+      const frameDist = this.currentPosition.distanceTo(this.prevFramePosition);
+      const speed = frameDist / Math.max(dt, 0.001);
       const isGrounded = this.currentPosition.y <= 2.0;
       animateWings(this.fullMesh, this.animTime, speed, isGrounded);
 

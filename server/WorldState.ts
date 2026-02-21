@@ -14,6 +14,14 @@ import {
 /** Event fanout radius (units) */
 const EVENT_BROADCAST_RADIUS = 500;
 
+/** Area-of-Interest radius: only players within this range are included in per-tick state */
+const AOI_RADIUS = 600;
+
+/** Lag-compensation: how many ms of position history to keep per player */
+const LAG_COMP_HISTORY_MS = 500;
+/** Max lag-compensation rewind window for poop hits */
+const LAG_COMP_WINDOW_MS = 200;
+
 /** PvP poop settings */
 const POOP_HIT_RADIUS = 3;
 const POOP_MAX_LIFETIME_MS = 2000;
@@ -91,6 +99,7 @@ export class WorldState {
   private pendingLassoCasts: Map<string, PendingLassoCast>; // attackerId -> pending cast
   private lassoVictimImmunityUntil: Map<string, number>; // victimId -> timestamp
   private lassoRepeatByPair: Map<string, LassoRepeatState>; // attacker|victim -> repeat state
+  private positionHistory: Map<string, { pos: Vector3; ts: number }[]>; // playerId -> ring buffer
   readonly raceManager: RaceManager;
 
   // PvP hit callback (used by BotManager to notify bots)
@@ -113,6 +122,7 @@ export class WorldState {
     this.pendingLassoCasts = new Map();
     this.lassoVictimImmunityUntil = new Map();
     this.lassoRepeatByPair = new Map();
+    this.positionHistory = new Map();
     this.raceManager = new RaceManager();
 
     this.initializeHotspots();
@@ -157,6 +167,7 @@ export class WorldState {
       }
       this.players.delete(playerId);
       this.pendingEvents.delete(playerId);
+      this.positionHistory.delete(playerId);
       this.raceManager.removePlayer(playerId);
       console.log(`Player ${player.username} left. Total players: ${this.players.size}`);
     }
@@ -185,6 +196,16 @@ export class WorldState {
       spawnAltitude: position.y,
       spawnTime: Date.now(),
     });
+  }
+
+  /** Admin: remove all in-flight poop projectiles */
+  clearActivePoops(): void {
+    this.activePoops.length = 0;
+  }
+
+  /** Admin: count of in-flight poop projectiles */
+  getActivePoopCount(): number {
+    return this.activePoops.length;
   }
 
   // --- Events ---
@@ -218,6 +239,22 @@ export class WorldState {
       player.decayHeat(dt);
       player.updateSpawnShield();
       player.updateStun();
+    }
+
+    // Record position history for lag compensation
+    const nowMs = Date.now();
+    for (const player of this.players.values()) {
+      let history = this.positionHistory.get(player.id);
+      if (!history) {
+        history = [];
+        this.positionHistory.set(player.id, history);
+      }
+      history.push({ pos: { ...player.position }, ts: nowMs });
+      // Trim entries older than LAG_COMP_HISTORY_MS
+      const cutoff = nowMs - LAG_COMP_HISTORY_MS;
+      let trimIdx = 0;
+      while (trimIdx < history.length - 1 && history[trimIdx].ts < cutoff) trimIdx++;
+      if (trimIdx > 0) history.splice(0, trimIdx);
     }
 
     // Update active poops (PvP collision detection)
@@ -265,8 +302,8 @@ export class WorldState {
         continue;
       }
 
-      // Check collision with players
-      const nearbyIds = this.spatialGrid.queryRadius(poop.position, POOP_HIT_RADIUS);
+      // Check collision with players (current position, then lag-compensated history)
+      const nearbyIds = this.spatialGrid.queryRadius(poop.position, POOP_HIT_RADIUS * 2);
       for (const playerId of nearbyIds) {
         if (playerId === poop.ownerId) continue; // can't hit yourself
 
@@ -279,12 +316,34 @@ export class WorldState {
         if (victim.isStunned()) continue;
         if (!victim.canBeHitByPvP()) continue;
 
-        // Distance check (precise)
-        const dx = victim.position.x - poop.position.x;
-        const dy = victim.position.y - poop.position.y;
-        const dz = victim.position.z - poop.position.z;
-        const distSq = dx * dx + dy * dy + dz * dz;
-        if (distSq > POOP_HIT_RADIUS * POOP_HIT_RADIUS) continue;
+        // Current-position check (precise)
+        let hit = false;
+        {
+          const dx = victim.position.x - poop.position.x;
+          const dy = victim.position.y - poop.position.y;
+          const dz = victim.position.z - poop.position.z;
+          if (dx * dx + dy * dy + dz * dz <= POOP_HIT_RADIUS * POOP_HIT_RADIUS) hit = true;
+        }
+
+        // Lag-compensation: check historical positions up to LAG_COMP_WINDOW_MS ago
+        if (!hit) {
+          const history = this.positionHistory.get(playerId);
+          if (history) {
+            const cutoff = now - LAG_COMP_WINDOW_MS;
+            for (let h = history.length - 1; h >= 0 && history[h].ts >= cutoff; h--) {
+              const hp = history[h].pos;
+              const dx = hp.x - poop.position.x;
+              const dy = hp.y - poop.position.y;
+              const dz = hp.z - poop.position.z;
+              if (dx * dx + dy * dy + dz * dz <= POOP_HIT_RADIUS * POOP_HIT_RADIUS) {
+                hit = true;
+                break;
+              }
+            }
+          }
+        }
+
+        if (!hit) continue;
 
         // HIT! Process PvP hit
         const attacker = this.players.get(poop.ownerId);
@@ -751,13 +810,17 @@ export class WorldState {
   }
 
   /**
-   * Global snapshot for a specific player.
-   * Every client receives all other players each tick.
+   * AOI-filtered snapshot for a specific player.
+   * Only includes players within AOI_RADIUS — eliminates O(N²) bandwidth growth.
    */
   getFilteredSnapshot(forPlayer: Player): FilteredWorldState {
+    const nearbyIds = this.spatialGrid.queryRadius(forPlayer.position, AOI_RADIUS);
+    const nearbySet = new Set(nearbyIds);
+
     const players = [];
     for (const other of this.players.values()) {
       if (other.id === forPlayer.id) continue;
+      if (!nearbySet.has(other.id)) continue; // outside AOI — skip
       players.push(other.toState());
     }
 

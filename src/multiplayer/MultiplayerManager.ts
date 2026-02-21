@@ -83,6 +83,8 @@ export interface MultiplayerEventCallbacks {
   onServerError?: (message: string) => void;
   onAdminAnnounce?: (data: { message: string; timestamp: number }) => void;
   onAdminKicked?: (data: { reason: string }) => void;
+  onAdminTeleport?: (data: { x: number; y: number; z: number }) => void;
+  onAdminWarn?: (data: { message: string; timestamp: number }) => void;
   onPvPHitReceived?: (data: PvPHitResult) => void;
   onPvPHitDealt?: (data: PvPHitResult) => void;
   onPvPHitNearby?: (data: PvPHitResult) => void;
@@ -132,13 +134,17 @@ export interface MultiplayerEventCallbacks {
   }) => void;
 }
 
+/** Client-side send buffer limit — skip update if socket is backed up */
+const MAX_CLIENT_BUFFER = 32 * 1024; // 32 KB
+/** Outgoing position update interval — true 20 Hz throttle */
+const SEND_INTERVAL_MS = 50;
+
 export class MultiplayerManager {
   private ws: WebSocket | null = null;
   private connected = false;
   private playerId: string | null = null;
   private _isAdmin = false;
   private remotePlayers: Map<string, RemotePlayer>;
-  private hiddenPlayerPool: RemotePlayer[] = []; // pooled hidden players for reuse
   private scene: THREE.Scene;
   private localBird: Bird;
   private serverUrl: string;
@@ -148,9 +154,15 @@ export class MultiplayerManager {
   // Track which players are currently visible (in near or mid range)
   private visiblePlayerIds = new Set<string>();
 
-  // Interpolation
-  private lastServerUpdate = 0;
-  private interpolationDelay = 100;
+  // Outgoing update throttle
+  private lastUpdateSentAt = 0;
+
+  // Reconnection state
+  private reconnectAttempts = 0;
+  private readonly MAX_RECONNECT_ATTEMPTS = 10;
+  private reconnectTimerId: ReturnType<typeof setTimeout> | null = null;
+  private intentionalDisconnect = false;
+  private lastConnectParams: { playerId: string; username: string } | null = null;
 
   constructor(scene: THREE.Scene, localBird: Bird, serverUrl: string, camera?: THREE.Camera) {
     this.scene = scene;
@@ -171,6 +183,11 @@ export class MultiplayerManager {
   async connect(playerId: string, username: string): Promise<void> {
     const CONNECT_TIMEOUT = 5000;
     const worldId = (import.meta.env.VITE_WORLD_ID as string | undefined)?.trim() || 'global-1';
+
+    // Store params for automatic reconnection
+    this.lastConnectParams = { playerId, username };
+    this.intentionalDisconnect = false;
+
     this.eventCallbacks.onConnectionStatus?.('connecting');
 
     return new Promise((resolve, reject) => {
@@ -208,6 +225,8 @@ export class MultiplayerManager {
 
             if (message.type === 'welcome') {
               clearTimeout(timeoutId);
+              // Successful (re)connection — reset backoff counter
+              this.reconnectAttempts = 0;
               this.eventCallbacks.onConnectionStatus?.('connected');
               resolve();
             }
@@ -233,6 +252,20 @@ export class MultiplayerManager {
             `Socket closed (code ${event.code}${event.reason ? `: ${event.reason}` : ''})`,
           );
           this.cleanup();
+
+          // Automatic reconnection with exponential backoff
+          if (!this.intentionalDisconnect && this.reconnectAttempts < this.MAX_RECONNECT_ATTEMPTS) {
+            const delayMs = Math.min(30_000, 1_000 * Math.pow(2, this.reconnectAttempts));
+            this.reconnectAttempts++;
+            console.log(`Reconnecting in ${delayMs / 1000}s (attempt ${this.reconnectAttempts}/${this.MAX_RECONNECT_ATTEMPTS})…`);
+            this.eventCallbacks.onConnectionStatus?.('connecting', `Reconnecting in ${Math.round(delayMs / 1000)}s…`);
+            this.reconnectTimerId = setTimeout(() => {
+              this.reconnectTimerId = null;
+              if (this.lastConnectParams && !this.intentionalDisconnect) {
+                this.connect(this.lastConnectParams.playerId, this.lastConnectParams.username).catch(() => {});
+              }
+            }, delayMs);
+          }
         };
       } catch (error) {
         clearTimeout(timeoutId);
@@ -338,6 +371,14 @@ export class MultiplayerManager {
         this.eventCallbacks.onAdminKicked?.(message.data);
         break;
 
+      case 'admin_teleport':
+        this.eventCallbacks.onAdminTeleport?.(message.data);
+        break;
+
+      case 'admin_warn':
+        this.eventCallbacks.onAdminWarn?.(message.data);
+        break;
+
       case 'error':
         console.error('Server error:', message.data.message);
         this.eventCallbacks.onServerError?.(message.data.message);
@@ -353,7 +394,6 @@ export class MultiplayerManager {
    * Handle legacy full world state (used in welcome message).
    */
   private handleLegacyWorldState(snapshot: WorldStateSnapshot): void {
-    this.lastServerUpdate = Date.now();
 
     const currentPlayerIds = new Set<string>();
     for (const playerState of snapshot.players) {
@@ -380,8 +420,6 @@ export class MultiplayerManager {
    * Handle global world state (all remote players every tick).
    */
   private handleFilteredWorldState(state: FilteredWorldState): void {
-    this.lastServerUpdate = Date.now();
-
     const activePlayerIds = new Set<string>();
 
     for (const playerState of state.players) {
@@ -490,6 +528,15 @@ export class MultiplayerManager {
   sendPlayerUpdate(): void {
     if (!this.connected || !this.ws) return;
 
+    // True 20 Hz throttle — Game.ts calls this every frame (60+ fps)
+    const now = Date.now();
+    if (now - this.lastUpdateSentAt < SEND_INTERVAL_MS) return;
+
+    // Skip if the socket's outgoing buffer is backed up (client-side backpressure)
+    if ((this.ws.bufferedAmount ?? 0) > MAX_CLIENT_BUFFER) return;
+
+    this.lastUpdateSentAt = now;
+
     const pos = this.localBird.controller.position;
     this.send({
       type: 'update',
@@ -498,7 +545,7 @@ export class MultiplayerManager {
         yaw: this.localBird.controller.yawAngle,
         pitch: this.localBird.controller.pitchAngle,
         speed: this.localBird.controller.forwardSpeed,
-        timestamp: Date.now(),
+        timestamp: now,
       },
     });
   }
@@ -651,10 +698,14 @@ export class MultiplayerManager {
     }
     this.remotePlayers.clear();
     this.visiblePlayerIds.clear();
-    this.hiddenPlayerPool = [];
   }
 
   disconnect(): void {
+    this.intentionalDisconnect = true;
+    if (this.reconnectTimerId !== null) {
+      clearTimeout(this.reconnectTimerId);
+      this.reconnectTimerId = null;
+    }
     if (this.ws) {
       this.send({ type: 'leave', data: {} });
       this.ws.close();

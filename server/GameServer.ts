@@ -32,6 +32,9 @@ const MAX_PLAYERS = 500;
 /** Maximum WebSocket buffer before skipping sends (backpressure) */
 const MAX_BUFFER_SIZE = 64 * 1024; // 64KB
 
+/** Maximum incoming message size — protects against DoS via giant JSON payloads */
+const MAX_MESSAGE_SIZE = 8 * 1024; // 8KB
+
 /** How often to log server stats (ticks) */
 const STATS_LOG_INTERVAL_TICKS = 1200; // every 60s at 20 ticks/s
 
@@ -44,6 +47,7 @@ type PvPModeId = 'poop-tag' | 'race' | 'poop-cover' | 'heist';
 type PvPSessionPhase = 'lobby' | 'countdown' | 'active' | 'results';
 
 interface PvPSession {
+  id: string;        // unique session ID — stable across phase transitions
   modeId: PvPModeId;
   phase: PvPSessionPhase;
   participants: Set<string>;
@@ -68,9 +72,13 @@ export class GameServer {
   private murmurationState: MurmurationState;
   private heistManager: HeistManager;
   private chatRateLimit: Map<string, number> = new Map();
-  private mutedPlayers: Set<string> = new Set();
-  private pvpSessions: Map<PvPModeId, PvPSession> = new Map();
-  private playerPvPSession: Map<string, PvPModeId> = new Map();
+  private mutedPlayers: Set<string> = new Set();       // playerId
+  private frozenPlayers: Set<string> = new Set();      // playerId
+  private bannedPlayerIds: Map<string, string> = new Map(); // supabase UUID → username
+  private serverStartTime: number = Date.now();
+  private pvpSessions: Map<string, PvPSession> = new Map();         // sessionId → session
+  private playerPvPSession: Map<string, string> = new Map();         // playerId → sessionId
+  private pvpActiveByMode: Map<PvPModeId, string> = new Map();       // modeId → current joinable sessionId
 
   constructor(port: number = 3001) {
     const httpServer = createServer();
@@ -146,6 +154,11 @@ export class GameServer {
       });
 
       ws.on('message', (data: Buffer) => {
+        // Guard against oversized messages (DoS protection)
+        if (data.length > MAX_MESSAGE_SIZE) {
+          this.sendError(ws, 'Message too large');
+          return;
+        }
         try {
           const message: ClientMessage = JSON.parse(data.toString());
           this.handleClientMessage(ws, message);
@@ -293,6 +306,16 @@ export class GameServer {
     let playerId = rawPlayerId;
     const username = rawUsername || (playerId.startsWith('guest_') ? `Bird_${playerId.slice(-4)}` : 'Player');
 
+    // Check ban list (authenticated players only — first 36 chars are the Supabase UUID)
+    if (!playerId.startsWith('guest_')) {
+      const uuid = playerId.substring(0, 36);
+      if (this.bannedPlayerIds.has(uuid)) {
+        this.sendError(ws, 'You are banned from this server');
+        ws.close();
+        return;
+      }
+    }
+
     // Check player limit
     if (this.clients.size >= MAX_PLAYERS) {
       this.sendError(ws, 'Server full');
@@ -318,7 +341,9 @@ export class GameServer {
 
     // Register client
     ws.playerId = playerId;
-    ws.isAdmin = ADMIN_USER_IDS.some((adminId) => playerId.startsWith(adminId));
+    ws.isAdmin = ADMIN_USER_IDS.filter((id) => id.length >= 36).some(
+      (adminId) => playerId === adminId || playerId.startsWith(adminId + '_'),
+    );
     this.clients.set(playerId, ws);
 
     // Send welcome message (full snapshot for initial load)
@@ -347,6 +372,9 @@ export class GameServer {
 
   private handlePlayerUpdate(ws: AuthenticatedSocket, data: PlayerInput): void {
     if (!ws.playerId) return;
+
+    // Frozen players cannot move
+    if (this.frozenPlayers.has(ws.playerId)) return;
 
     const player = this.world.getPlayer(ws.playerId);
     if (!player) return;
@@ -519,99 +547,399 @@ export class GameServer {
 
   // --- Admin Commands ---
 
+  /** Send a private message back to the admin's own chat. */
+  private adminReply(ws: AuthenticatedSocket, msg: string): void {
+    this.send(ws, {
+      type: 'chat',
+      data: { playerId: 'server', username: '[Admin]', message: msg, timestamp: Date.now() },
+    });
+  }
+
   private handleAdminCommand(ws: AuthenticatedSocket, adminName: string, message: string): void {
     const parts = message.slice(1).split(' ');
     const cmd = parts[0].toLowerCase();
     const args = parts.slice(1);
 
     switch (cmd) {
+
+      // ── Broadcast ──────────────────────────────────────────────────────────
       case 'announce': {
         const text = args.join(' ');
-        if (!text) break;
+        if (!text) { this.adminReply(ws, 'Usage: /announce <message>'); break; }
         console.log(`[ADMIN] ${adminName} announced: ${text}`);
-        this.broadcast({
-          type: 'admin_announce',
-          data: { message: text, timestamp: Date.now() },
-        });
+        this.broadcast({ type: 'admin_announce', data: { message: text, timestamp: Date.now() } });
         break;
       }
 
+      // ── Kick ───────────────────────────────────────────────────────────────
       case 'kick': {
         const targetName = args[0];
-        if (!targetName) break;
+        if (!targetName) { this.adminReply(ws, 'Usage: /kick <username>'); break; }
         const targetId = this.findPlayerIdByUsername(targetName);
-        if (!targetId) {
-          this.sendError(ws, `Player not found: ${targetName}`);
-          break;
-        }
+        if (!targetId) { this.adminReply(ws, `Player not found: ${targetName}`); break; }
         const targetWs = this.clients.get(targetId);
         if (targetWs) {
           this.send(targetWs, { type: 'admin_kicked', data: { reason: 'Kicked by admin' } });
           targetWs.close();
         }
-        console.log(`[ADMIN] ${adminName} kicked ${targetName} (${targetId})`);
+        console.log(`[ADMIN] ${adminName} kicked ${targetName}`);
+        this.adminReply(ws, `Kicked ${targetName}`);
         break;
       }
 
+      // ── Ban (kick + block rejoin this session) ─────────────────────────────
+      case 'ban': {
+        const targetName = args[0];
+        if (!targetName) { this.adminReply(ws, 'Usage: /ban <username>'); break; }
+        const targetId = this.findPlayerIdByUsername(targetName);
+        if (!targetId) { this.adminReply(ws, `Player not found: ${targetName}`); break; }
+        const uuid = targetId.startsWith('guest_') ? null : targetId.substring(0, 36);
+        if (!uuid) { this.adminReply(ws, `Cannot ban guest players (no persistent ID)`); break; }
+        this.bannedPlayerIds.set(uuid, targetName);
+        const targetWs = this.clients.get(targetId);
+        if (targetWs) {
+          this.send(targetWs, { type: 'admin_kicked', data: { reason: 'Banned by admin' } });
+          targetWs.close();
+        }
+        console.log(`[ADMIN] ${adminName} banned ${targetName} (${uuid})`);
+        this.adminReply(ws, `Banned ${targetName} (UUID: ${uuid})`);
+        break;
+      }
+
+      // ── Unban ──────────────────────────────────────────────────────────────
+      case 'unban': {
+        const input = args[0];
+        if (!input) { this.adminReply(ws, 'Usage: /unban <username_or_uuid>'); break; }
+        // Try by UUID first, then by stored username
+        if (this.bannedPlayerIds.has(input)) {
+          const username = this.bannedPlayerIds.get(input) ?? input;
+          this.bannedPlayerIds.delete(input);
+          console.log(`[ADMIN] ${adminName} unbanned ${username} (${input})`);
+          this.adminReply(ws, `Unbanned ${username}`);
+        } else {
+          const entry = Array.from(this.bannedPlayerIds.entries()).find(
+            ([, name]) => name.toLowerCase() === input.toLowerCase(),
+          );
+          if (entry) {
+            this.bannedPlayerIds.delete(entry[0]);
+            console.log(`[ADMIN] ${adminName} unbanned ${entry[1]} (${entry[0]})`);
+            this.adminReply(ws, `Unbanned ${entry[1]}`);
+          } else {
+            this.adminReply(ws, `No ban found for: ${input}`);
+          }
+        }
+        break;
+      }
+
+      // ── Ban list ───────────────────────────────────────────────────────────
+      case 'banlist': {
+        if (this.bannedPlayerIds.size === 0) {
+          this.adminReply(ws, 'No players are banned.');
+          break;
+        }
+        const list = Array.from(this.bannedPlayerIds.entries())
+          .map(([uuid, name]) => `${name} (${uuid})`)
+          .join(', ');
+        this.adminReply(ws, `Banned (${this.bannedPlayerIds.size}): ${list}`);
+        break;
+      }
+
+      // ── Mute ───────────────────────────────────────────────────────────────
       case 'mute': {
         const targetName = args[0];
-        if (!targetName) break;
+        if (!targetName) { this.adminReply(ws, 'Usage: /mute <username>'); break; }
         const targetId = this.findPlayerIdByUsername(targetName);
-        if (!targetId) {
-          this.sendError(ws, `Player not found: ${targetName}`);
-          break;
-        }
+        if (!targetId) { this.adminReply(ws, `Player not found: ${targetName}`); break; }
         this.mutedPlayers.add(targetId);
-        console.log(`[ADMIN] ${adminName} muted ${targetName} (${targetId})`);
-        // Confirm to admin via chat
-        this.send(ws, {
-          type: 'chat',
-          data: { playerId: 'server', username: '[Admin]', message: `Muted ${targetName}`, timestamp: Date.now() },
-        });
+        console.log(`[ADMIN] ${adminName} muted ${targetName}`);
+        this.adminReply(ws, `Muted ${targetName}`);
         break;
       }
 
+      // ── Unmute ─────────────────────────────────────────────────────────────
       case 'unmute': {
         const targetName = args[0];
-        if (!targetName) break;
+        if (!targetName) { this.adminReply(ws, 'Usage: /unmute <username>'); break; }
         const targetId = this.findPlayerIdByUsername(targetName);
-        if (!targetId) {
-          this.sendError(ws, `Player not found: ${targetName}`);
-          break;
-        }
+        if (!targetId) { this.adminReply(ws, `Player not found: ${targetName}`); break; }
         this.mutedPlayers.delete(targetId);
-        console.log(`[ADMIN] ${adminName} unmuted ${targetName} (${targetId})`);
-        this.send(ws, {
-          type: 'chat',
-          data: { playerId: 'server', username: '[Admin]', message: `Unmuted ${targetName}`, timestamp: Date.now() },
-        });
+        console.log(`[ADMIN] ${adminName} unmuted ${targetName}`);
+        this.adminReply(ws, `Unmuted ${targetName}`);
         break;
       }
 
+      // ── Mute list ──────────────────────────────────────────────────────────
+      case 'mutelist': {
+        if (this.mutedPlayers.size === 0) {
+          this.adminReply(ws, 'No players are muted.');
+          break;
+        }
+        const list = Array.from(this.mutedPlayers)
+          .map((id) => this.world.getPlayer(id)?.username ?? id)
+          .join(', ');
+        this.adminReply(ws, `Muted (${this.mutedPlayers.size}): ${list}`);
+        break;
+      }
+
+      // ── Warn (private message to a player) ────────────────────────────────
+      case 'warn': {
+        const targetName = args[0];
+        const warnText = args.slice(1).join(' ');
+        if (!targetName || !warnText) { this.adminReply(ws, 'Usage: /warn <username> <message>'); break; }
+        const targetId = this.findPlayerIdByUsername(targetName);
+        if (!targetId) { this.adminReply(ws, `Player not found: ${targetName}`); break; }
+        const targetWs = this.clients.get(targetId);
+        if (targetWs) {
+          this.send(targetWs, {
+            type: 'admin_warn',
+            data: { message: warnText, timestamp: Date.now() },
+          });
+        }
+        console.log(`[ADMIN] ${adminName} warned ${targetName}: ${warnText}`);
+        this.adminReply(ws, `Warning sent to ${targetName}`);
+        break;
+      }
+
+      // ── Freeze (infinite stun, movement blocked) ───────────────────────────
+      case 'freeze': {
+        const targetName = args[0];
+        if (!targetName) { this.adminReply(ws, 'Usage: /freeze <username>'); break; }
+        const targetId = this.findPlayerIdByUsername(targetName);
+        if (!targetId) { this.adminReply(ws, `Player not found: ${targetName}`); break; }
+        const target = this.world.getPlayer(targetId);
+        if (!target) break;
+        this.frozenPlayers.add(targetId);
+        target.applyStun(99999); // ~28 hours — effectively permanent
+        console.log(`[ADMIN] ${adminName} froze ${targetName}`);
+        this.adminReply(ws, `Froze ${targetName}`);
+        break;
+      }
+
+      // ── Unfreeze ───────────────────────────────────────────────────────────
+      case 'unfreeze': {
+        const targetName = args[0];
+        if (!targetName) { this.adminReply(ws, 'Usage: /unfreeze <username>'); break; }
+        const targetId = this.findPlayerIdByUsername(targetName);
+        if (!targetId) { this.adminReply(ws, `Player not found: ${targetName}`); break; }
+        const target = this.world.getPlayer(targetId);
+        if (!target) break;
+        this.frozenPlayers.delete(targetId);
+        target.stunnedUntil = 0; // expire stun immediately — WorldState.updateStun() will restore state next tick
+        console.log(`[ADMIN] ${adminName} unfroze ${targetName}`);
+        this.adminReply(ws, `Unfroze ${targetName}`);
+        break;
+      }
+
+      // ── Bring (teleport target to admin) ──────────────────────────────────
+      case 'bring': {
+        const targetName = args[0];
+        if (!targetName) { this.adminReply(ws, 'Usage: /bring <username>'); break; }
+        const targetId = this.findPlayerIdByUsername(targetName);
+        if (!targetId) { this.adminReply(ws, `Player not found: ${targetName}`); break; }
+        const adminPlayer = ws.playerId ? this.world.getPlayer(ws.playerId) : null;
+        const targetPlayer = this.world.getPlayer(targetId);
+        if (!adminPlayer || !targetPlayer) break;
+        targetPlayer.position = { ...adminPlayer.position };
+        const targetWs = this.clients.get(targetId);
+        if (targetWs) {
+          this.send(targetWs, {
+            type: 'admin_teleport',
+            data: { x: adminPlayer.position.x, y: adminPlayer.position.y, z: adminPlayer.position.z },
+          });
+        }
+        console.log(`[ADMIN] ${adminName} brought ${targetName} to admin position`);
+        this.adminReply(ws, `Teleported ${targetName} to your location`);
+        break;
+      }
+
+      // ── Teleport admin to target ───────────────────────────────────────────
+      case 'tp': {
+        const targetName = args[0];
+        if (!targetName) { this.adminReply(ws, 'Usage: /tp <username>'); break; }
+        const targetId = this.findPlayerIdByUsername(targetName);
+        if (!targetId) { this.adminReply(ws, `Player not found: ${targetName}`); break; }
+        const targetPlayer = this.world.getPlayer(targetId);
+        const adminPlayer = ws.playerId ? this.world.getPlayer(ws.playerId) : null;
+        if (!targetPlayer || !adminPlayer) break;
+        adminPlayer.position = { ...targetPlayer.position };
+        this.send(ws, {
+          type: 'admin_teleport',
+          data: { x: targetPlayer.position.x, y: targetPlayer.position.y, z: targetPlayer.position.z },
+        });
+        console.log(`[ADMIN] ${adminName} teleported to ${targetName}`);
+        this.adminReply(ws, `Teleported to ${targetName}`);
+        break;
+      }
+
+      // ── Coins (give/take) ──────────────────────────────────────────────────
+      case 'coins': {
+        const targetName = args[0];
+        const amount = parseInt(args[1] ?? '', 10);
+        if (!targetName || isNaN(amount)) { this.adminReply(ws, 'Usage: /coins <username> <amount>'); break; }
+        const targetId = this.findPlayerIdByUsername(targetName);
+        if (!targetId) { this.adminReply(ws, `Player not found: ${targetName}`); break; }
+        const target = this.world.getPlayer(targetId);
+        if (!target) break;
+        target.coins = Math.max(0, target.coins + amount);
+        console.log(`[ADMIN] ${adminName} gave ${amount} coins to ${targetName} (now: ${target.coins})`);
+        this.adminReply(ws, `${amount >= 0 ? 'Gave' : 'Took'} ${Math.abs(amount)} coins ${amount >= 0 ? 'to' : 'from'} ${targetName} (now: ${target.coins})`);
+        break;
+      }
+
+      // ── Clear heat ─────────────────────────────────────────────────────────
+      case 'clearheat': {
+        const targetName = args[0];
+        if (!targetName) { this.adminReply(ws, 'Usage: /clearheat <username>'); break; }
+        const targetId = this.findPlayerIdByUsername(targetName);
+        if (!targetId) { this.adminReply(ws, `Player not found: ${targetName}`); break; }
+        const target = this.world.getPlayer(targetId);
+        if (!target) break;
+        target.updateHeat(-50); // bring to 0
+        console.log(`[ADMIN] ${adminName} cleared heat for ${targetName}`);
+        this.adminReply(ws, `Cleared heat for ${targetName}`);
+        break;
+      }
+
+      // ── Set heat ───────────────────────────────────────────────────────────
+      case 'setheat': {
+        const targetName = args[0];
+        const level = parseInt(args[1] ?? '', 10);
+        if (!targetName || isNaN(level)) { this.adminReply(ws, 'Usage: /setheat <username> <0-50>'); break; }
+        const targetId = this.findPlayerIdByUsername(targetName);
+        if (!targetId) { this.adminReply(ws, `Player not found: ${targetName}`); break; }
+        const target = this.world.getPlayer(targetId);
+        if (!target) break;
+        const clamped = Math.max(0, Math.min(50, level));
+        target.heat = clamped;
+        target.wantedFlag = clamped >= 15;
+        if (!target.isStunned()) {
+          target.state = clamped >= 15 ? 'WANTED' : 'NORMAL';
+        }
+        console.log(`[ADMIN] ${adminName} set ${targetName} heat to ${clamped}`);
+        this.adminReply(ws, `Set ${targetName}'s heat to ${clamped}`);
+        break;
+      }
+
+      // ── Players list ───────────────────────────────────────────────────────
       case 'players': {
+        const realCount = this.clients.size;
+        const botCount = this.botManager.getBotCount();
         const list = Array.from(this.clients.entries())
-          .map(([id, client]) => {
+          .map(([id]) => {
             const p = this.world.getPlayer(id);
-            return `${p?.username ?? id}${this.mutedPlayers.has(id) ? ' [muted]' : ''}`;
+            const flags = [
+              this.mutedPlayers.has(id) ? 'muted' : '',
+              this.frozenPlayers.has(id) ? 'frozen' : '',
+              (id as AuthenticatedSocket['playerId']) && (this.clients.get(id) as AuthenticatedSocket)?.isAdmin ? 'admin' : '',
+            ].filter(Boolean).join(',');
+            return `${p?.username ?? id}${flags ? ` [${flags}]` : ''}`;
           })
           .join(', ');
-        this.send(ws, {
-          type: 'chat',
-          data: { playerId: 'server', username: '[Admin]', message: `Players: ${list}`, timestamp: Date.now() },
-        });
+        this.adminReply(ws, `Players (${realCount} real + ${botCount} bots): ${list || 'none'}`);
+        break;
+      }
+
+      // ── Bot list ───────────────────────────────────────────────────────────
+      case 'bots': {
+        const summaries = this.botManager.getBotSummaries();
+        if (summaries.length === 0) { this.adminReply(ws, 'No bots active.'); break; }
+        const list = summaries.map((b) => b.username).join(', ');
+        this.adminReply(ws, `Bots (${summaries.length}): ${list}`);
+        break;
+      }
+
+      // ── Spawn one bot ──────────────────────────────────────────────────────
+      case 'spawnbot': {
+        this.botManager.spawnOneBot();
+        console.log(`[ADMIN] ${adminName} force-spawned a bot`);
+        this.adminReply(ws, `Spawned a bot (total bots: ${this.botManager.getBotCount()})`);
+        break;
+      }
+
+      // ── Clear all bots ─────────────────────────────────────────────────────
+      case 'clearbots': {
+        const count = this.botManager.getBotCount();
+        const botIds = this.botManager.getBotIds();
+        for (const botId of botIds) {
+          this.botManager.removeOneBot(botId);
+          this.broadcast({ type: 'player_left', data: { playerId: botId } });
+        }
+        console.log(`[ADMIN] ${adminName} cleared ${count} bots`);
+        this.adminReply(ws, `Removed ${count} bots`);
+        break;
+      }
+
+      // ── Clear poop projectiles ─────────────────────────────────────────────
+      case 'clearpoops': {
+        this.world.clearActivePoops();
+        console.log(`[ADMIN] ${adminName} cleared active poops`);
+        this.adminReply(ws, 'Cleared all active poop projectiles');
+        break;
+      }
+
+      // ── Force-end a PvP session ────────────────────────────────────────────
+      case 'endpvp': {
+        const modeArg = args[0]?.toLowerCase() as PvPModeId | undefined;
+        let ended = 0;
+        for (const [sessionId, session] of this.pvpSessions) {
+          if (!modeArg || session.modeId === modeArg) {
+            this.broadcastToPvPSession(session, {
+              type: 'pvp-mode-end',
+              data: { mode: session.modeId, results: { reason: 'admin-ended' } },
+            });
+            for (const participantId of session.participants) {
+              this.playerPvPSession.delete(participantId);
+            }
+            this.pvpSessions.delete(sessionId);
+            if (this.pvpActiveByMode.get(session.modeId) === sessionId) {
+              this.pvpActiveByMode.delete(session.modeId);
+            }
+            ended++;
+          }
+        }
+        console.log(`[ADMIN] ${adminName} force-ended ${ended} PvP session(s)`);
+        this.adminReply(ws, ended > 0 ? `Ended ${ended} PvP session(s)` : 'No active PvP sessions found');
+        break;
+      }
+
+      // ── Server info ────────────────────────────────────────────────────────
+      case 'info': {
+        const uptimeSec = Math.floor((Date.now() - this.serverStartTime) / 1000);
+        const hours = Math.floor(uptimeSec / 3600);
+        const mins = Math.floor((uptimeSec % 3600) / 60);
+        const secs = uptimeSec % 60;
+        const uptime = `${hours}h ${mins}m ${secs}s`;
+        const realPlayers = this.clients.size;
+        const bots = this.botManager.getBotCount();
+        const poops = this.world.getActivePoopCount();
+        const activePvP = this.pvpSessions.size;
+        const muted = this.mutedPlayers.size;
+        const frozen = this.frozenPlayers.size;
+        const banned = this.bannedPlayerIds.size;
+        this.adminReply(ws,
+          `Server info — Uptime: ${uptime} | Players: ${realPlayers} real + ${bots} bots | ` +
+          `Active poops: ${poops} | PvP sessions: ${activePvP} | ` +
+          `Muted: ${muted} | Frozen: ${frozen} | Banned: ${banned}`,
+        );
+        break;
+      }
+
+      // ── Help ───────────────────────────────────────────────────────────────
+      case 'help': {
+        const cmds = [
+          '/announce <msg>', '/kick <name>', '/ban <name>', '/unban <name>', '/banlist',
+          '/mute <name>', '/unmute <name>', '/mutelist', '/warn <name> <msg>',
+          '/freeze <name>', '/unfreeze <name>', '/bring <name>', '/tp <name>',
+          '/coins <name> <±amt>', '/clearheat <name>', '/setheat <name> <0-50>',
+          '/players', '/bots', '/spawnbot', '/clearbots',
+          '/clearpoops', '/endpvp [mode]', '/info',
+        ];
+        this.adminReply(ws, `Commands: ${cmds.join(' | ')}`);
         break;
       }
 
       default:
-        this.send(ws, {
-          type: 'chat',
-          data: {
-            playerId: 'server',
-            username: '[Admin]',
-            message: `Unknown command /${cmd}. Available: /announce <msg>, /kick <name>, /mute <name>, /unmute <name>, /players`,
-            timestamp: Date.now(),
-          },
-        });
+        this.adminReply(ws, `Unknown: /${cmd}. Type /help for command list.`);
     }
   }
 
@@ -735,9 +1063,9 @@ export class GameServer {
   }
 
   private getPvPSessionForPlayer(playerId: string): PvPSession | null {
-    const modeId = this.playerPvPSession.get(playerId);
-    if (!modeId) return null;
-    return this.pvpSessions.get(modeId) || null;
+    const sessionId = this.playerPvPSession.get(playerId);
+    if (!sessionId) return null;
+    return this.pvpSessions.get(sessionId) || null;
   }
 
   private buildPvPState(session: PvPSession, now: number): any {
@@ -789,17 +1117,21 @@ export class GameServer {
   }
 
   private removePlayerFromPvPSession(playerId: string): void {
-    const modeId = this.playerPvPSession.get(playerId);
-    if (!modeId) return;
+    const sessionId = this.playerPvPSession.get(playerId);
+    if (!sessionId) return;
 
-    const session = this.pvpSessions.get(modeId);
+    const session = this.pvpSessions.get(sessionId);
     this.playerPvPSession.delete(playerId);
     if (!session) return;
 
     session.participants.delete(playerId);
 
     if (session.participants.size === 0) {
-      this.pvpSessions.delete(modeId);
+      this.pvpSessions.delete(sessionId);
+      // Also remove from mode index if this was the active session.
+      if (this.pvpActiveByMode.get(session.modeId) === sessionId) {
+        this.pvpActiveByMode.delete(session.modeId);
+      }
       return;
     }
 
@@ -819,35 +1151,40 @@ export class GameServer {
     const now = Date.now();
 
     // Leave previous session first if switching modes.
-    const existingMode = this.playerPvPSession.get(ws.playerId);
-    if (existingMode && existingMode !== modeId) {
-      this.removePlayerFromPvPSession(ws.playerId);
+    const existingSessionId = this.playerPvPSession.get(ws.playerId);
+    if (existingSessionId) {
+      const existingSession = this.pvpSessions.get(existingSessionId);
+      if (!existingSession || existingSession.modeId !== modeId) {
+        this.removePlayerFromPvPSession(ws.playerId);
+      } else {
+        // Already in a lobby/countdown for this mode — no-op.
+        if (existingSession.phase === 'lobby' || existingSession.phase === 'countdown') {
+          return;
+        }
+      }
     }
 
-    let session = this.pvpSessions.get(modeId);
-    if (!session) {
+    // Find the current joinable session for this mode (lobby or countdown only).
+    const activeSessionId = this.pvpActiveByMode.get(modeId);
+    let session = activeSessionId ? this.pvpSessions.get(activeSessionId) : undefined;
+
+    // If the active session is already running or finishing, create a new lobby.
+    if (!session || session.phase === 'active' || session.phase === 'results') {
+      const sessionId = `${modeId}_${now}`;
       session = {
+        id: sessionId,
         modeId,
         phase: 'lobby',
         participants: new Set<string>(),
         phaseEndsAt: now + PVP_LOBBY_DURATION_MS,
         lastStateBroadcastAt: 0,
       };
-      this.pvpSessions.set(modeId, session);
-    } else if (session.phase === 'active' || session.phase === 'results') {
-      // Active/results rounds are closed for new participants; queue into next round.
-      session = {
-        modeId,
-        phase: 'lobby',
-        participants: new Set<string>(),
-        phaseEndsAt: now + PVP_LOBBY_DURATION_MS,
-        lastStateBroadcastAt: 0,
-      };
-      this.pvpSessions.set(modeId, session);
+      this.pvpSessions.set(sessionId, session);
+      this.pvpActiveByMode.set(modeId, sessionId);
     }
 
     session.participants.add(ws.playerId);
-    this.playerPvPSession.set(ws.playerId, modeId);
+    this.playerPvPSession.set(ws.playerId, session.id);
     this.broadcastPvPState(session);
   }
 
@@ -903,7 +1240,7 @@ export class GameServer {
   private updatePvPSessions(): void {
     const now = Date.now();
 
-    for (const [modeId, session] of this.pvpSessions) {
+    for (const [sessionId, session] of this.pvpSessions) {
       // Prune disconnected players.
       for (const participantId of Array.from(session.participants)) {
         if (!this.clients.has(participantId)) {
@@ -913,7 +1250,10 @@ export class GameServer {
       }
 
       if (session.participants.size === 0) {
-        this.pvpSessions.delete(modeId);
+        this.pvpSessions.delete(sessionId);
+        if (this.pvpActiveByMode.get(session.modeId) === sessionId) {
+          this.pvpActiveByMode.delete(session.modeId);
+        }
         continue;
       }
 
@@ -936,6 +1276,11 @@ export class GameServer {
         session.phaseEndsAt = now + PVP_RESULTS_DURATION_MS;
         phaseChanged = true;
 
+        // Open a new lobby so late joiners can queue for the next round.
+        if (this.pvpActiveByMode.get(session.modeId) === sessionId) {
+          this.pvpActiveByMode.delete(session.modeId);
+        }
+
         this.broadcastToPvPSession(session, {
           type: 'pvp-mode-end',
           data: {
@@ -947,7 +1292,10 @@ export class GameServer {
         for (const participantId of session.participants) {
           this.playerPvPSession.delete(participantId);
         }
-        this.pvpSessions.delete(modeId);
+        this.pvpSessions.delete(sessionId);
+        if (this.pvpActiveByMode.get(session.modeId) === sessionId) {
+          this.pvpActiveByMode.delete(session.modeId);
+        }
         continue;
       }
 
@@ -965,6 +1313,7 @@ export class GameServer {
     this.clients.delete(playerId);
     this.chatRateLimit.delete(playerId);
     this.mutedPlayers.delete(playerId);
+    this.frozenPlayers.delete(playerId);
 
     // Clean up MvM match/queue for disconnected player
     this.mvmManager.handlePlayerDisconnect(playerId);

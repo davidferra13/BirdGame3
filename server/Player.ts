@@ -16,6 +16,11 @@ const GROUNDING_LOSS_FRACTION = 0.4;
 /** PvP hit immunity cooldown (seconds) */
 const PVP_HIT_IMMUNITY_MS = 3000;
 
+/** Anti-cheat: maximum plausible speed in units/second (generous — covers dive + boost) */
+const ANTI_CHEAT_MAX_SPEED = 120;
+/** Anti-cheat: margin multiplier to absorb network jitter / burst frames */
+const ANTI_CHEAT_MARGIN = 2.5;
+
 export class Player {
   id: string;
   username: string;
@@ -73,6 +78,24 @@ export class Player {
     if (!this.isValidPosition(input.position)) {
       console.warn(`Invalid position for player ${this.id}`);
       return;
+    }
+
+    // Anti-cheat: reject teleport moves
+    const now = Date.now();
+    const dt = (now - this.lastUpdate) / 1000;
+    if (dt >= 0.01 && dt <= 5) {
+      const dx = input.position.x - this.position.x;
+      const dy = input.position.y - this.position.y;
+      const dz = input.position.z - this.position.z;
+      const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+      const maxAllowed = ANTI_CHEAT_MAX_SPEED * dt * ANTI_CHEAT_MARGIN;
+      if (dist > maxAllowed) {
+        console.warn(
+          `[Anti-cheat] ${this.username} teleport rejected: ` +
+          `${dist.toFixed(1)} units in ${dt.toFixed(3)}s (max ${maxAllowed.toFixed(1)})`,
+        );
+        return;
+      }
     }
 
     this.position = { ...input.position };
