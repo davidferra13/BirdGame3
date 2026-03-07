@@ -81,10 +81,12 @@ export class InputManager {
   private _mouseClicked = false;
   private _rightMouseDown = false;
   private _rightMouseClicked = false;
+  private _middleMouseDown = false;
   private _pointerLocked = false;
   private _scrollDelta = 0;
 
   sensitivity = 1.0;
+  touchSensitivity = 1.0;
   invertY = false;
 
   // Idle tracking — reset on any gameplay input
@@ -113,6 +115,15 @@ export class InputManager {
   private touchBank = false;
   private touchUTurn = false;
   private touchGrabPressed = false;
+  private touchAscendBtn = false;
+  private touchDiveBtn = false;
+
+  // Gamepad
+  private _gamepadIndex: number | null = null;
+  private _gamepadAxes = { x: 0, y: 0, camX: 0, camY: 0 };
+  private _gamepadButtons = new Set<number>();
+  private _gamepadPrevButtons = new Set<number>();
+  private readonly GAMEPAD_DEADZONE = 0.12;
 
   // Store bound handlers for cleanup
   private _onKeyDown: (e: KeyboardEvent) => void;
@@ -250,6 +261,10 @@ export class InputManager {
           }
         }
       }
+      if (e.button === 1) {
+        this._middleMouseDown = true;
+        e.preventDefault(); // prevent autoscroll cursor
+      }
       if (e.button === 2) {
         if (!this._rightMouseDown) {
           this._rightMouseClicked = true;
@@ -261,6 +276,9 @@ export class InputManager {
     window.addEventListener('mousedown', this._onMouseDown);
 
     this._onMouseUp = (e: MouseEvent) => {
+      if (e.button === 1) {
+        this._middleMouseDown = false;
+      }
       if (e.button === 2) {
         this._rightMouseDown = false;
       }
@@ -302,11 +320,60 @@ export class InputManager {
     };
     window.addEventListener('blur', this._onBlur);
 
+    // ── Gamepad ──
+    window.addEventListener('gamepadconnected', (e: GamepadEvent) => {
+      this._gamepadIndex = e.gamepad.index;
+    });
+    window.addEventListener('gamepaddisconnected', () => {
+      this._gamepadIndex = null;
+      this._gamepadAxes.x = 0;
+      this._gamepadAxes.y = 0;
+      this._gamepadAxes.camX = 0;
+      this._gamepadAxes.camY = 0;
+      this._gamepadButtons.clear();
+    });
+
     // ── Touch ──
     if (this.isTouchDevice) {
       this.createTouchUI();
     }
   }
+
+  private pollGamepad(): void {
+    if (this._gamepadIndex === null) return;
+    const gp = navigator.getGamepads()[this._gamepadIndex];
+    if (!gp) return;
+
+    const dz = this.GAMEPAD_DEADZONE;
+    const applyDeadzone = (v: number): number => Math.abs(v) < dz ? 0 : (v - Math.sign(v) * dz) / (1 - dz);
+
+    // Left stick: flight axes (x = yaw/roll, y = pitch)
+    this._gamepadAxes.x = applyDeadzone(gp.axes[0] ?? 0);
+    this._gamepadAxes.y = applyDeadzone(gp.axes[1] ?? 0);
+    // Right stick: camera look
+    this._gamepadAxes.camX = applyDeadzone(gp.axes[2] ?? 0);
+    this._gamepadAxes.camY = applyDeadzone(gp.axes[3] ?? 0);
+
+    // Track prev for wasPressed-style queries
+    this._gamepadPrevButtons.clear();
+    for (const btn of this._gamepadButtons) this._gamepadPrevButtons.add(btn);
+    this._gamepadButtons.clear();
+    gp.buttons.forEach((btn, i) => { if (btn.pressed) this._gamepadButtons.add(i); });
+  }
+
+  // Standard gamepad button mapping (Xbox/PS layout):
+  // 0=A/Cross  1=B/Circle  2=X/Square  3=Y/Triangle
+  // 4=LB/L1    5=RB/R1     6=LT/L2     7=RT/R2
+  // 8=Select   9=Start     10=L3       11=R3
+  private isGamepadDown(btn: number): boolean {
+    return this._gamepadButtons.has(btn);
+  }
+  private wasGamepadPressed(btn: number): boolean {
+    return this._gamepadButtons.has(btn) && !this._gamepadPrevButtons.has(btn);
+  }
+
+  getGamepadCamX(): number { return this._gamepadAxes.camX; }
+  getGamepadCamY(): number { return this._gamepadAxes.camY; }
 
   dispose(): void {
     window.removeEventListener('keydown', this._onKeyDown);
@@ -514,15 +581,28 @@ export class InputManager {
     });
     root.appendChild(grabBtn);
 
+    // ASCEND button (↑) — explicit altitude button for mobile
+    const ascendBtn = makeActionBtn('UP', 'rgba(100,180,255,0.45)', '\u2191');
+    ascendBtn.style.position = 'absolute';
+    ascendBtn.style.bottom = `${clusterBottom + (btnSize + gap) * 3}px`;
+    ascendBtn.style.right = `${clusterRight}px`;
+    ascendBtn.addEventListener('touchstart', (e) => { e.preventDefault(); this.touchAscendBtn = true; });
+    ascendBtn.addEventListener('touchend', () => { this.touchAscendBtn = false; });
+    ascendBtn.addEventListener('touchcancel', () => { this.touchAscendBtn = false; });
+    root.appendChild(ascendBtn);
+
+    // DESCEND button (↓) — explicit altitude button for mobile
+    const descendBtn = makeActionBtn('DN', 'rgba(255,160,60,0.45)', '\u2193');
+    descendBtn.style.position = 'absolute';
+    descendBtn.style.bottom = `${clusterBottom + (btnSize + gap) * 4}px`;
+    descendBtn.style.right = `${clusterRight}px`;
+    descendBtn.addEventListener('touchstart', (e) => { e.preventDefault(); this.touchDiveBtn = true; });
+    descendBtn.addEventListener('touchend', () => { this.touchDiveBtn = false; });
+    descendBtn.addEventListener('touchcancel', () => { this.touchDiveBtn = false; });
+    root.appendChild(descendBtn);
+
     document.body.appendChild(root);
     this.touchControls = root;
-  }
-
-  private makeButton(label: string, style: string): HTMLElement {
-    const btn = document.createElement('div');
-    btn.style.cssText = style;
-    btn.innerHTML = label.replace(/\n/g, '<br>');
-    return btn;
   }
 
   // ── Joystick handlers ─────────────────────────────
@@ -569,9 +649,9 @@ export class InputManager {
         this.joyAxis.h = Math.max(-1, Math.min(1, clampedX / maxDist));
         this.joyAxis.v = Math.max(-1, Math.min(1, -clampedY / maxDist)); // up = positive
 
-        // Map vertical axis to fly up / dive
-        this.touchAscend = this.joyAxis.v > 0.6;
-        this.touchDive = this.joyAxis.v < -0.6;
+        // Map vertical axis to fly up / dive (threshold lowered for better responsiveness)
+        this.touchAscend = this.joyAxis.v > 0.4;
+        this.touchDive = this.joyAxis.v < -0.4;
 
         // Update visual thumb position
         if (this.joyThumb) {
@@ -614,8 +694,9 @@ export class InputManager {
     for (let i = 0; i < e.changedTouches.length; i++) {
       const t = e.changedTouches[i];
       if (t.identifier === this.camTouchId) {
-        this._mouseDx += (t.clientX - this.camLastPos.x) * 0.3;
-        this._mouseDy += (t.clientY - this.camLastPos.y) * 0.3;
+        const factor = 0.3 * this.touchSensitivity;
+        this._mouseDx += (t.clientX - this.camLastPos.x) * factor;
+        this._mouseDy += (t.clientY - this.camLastPos.y) * factor;
         this.camLastPos.x = t.clientX;
         this.camLastPos.y = t.clientY;
       }
@@ -658,32 +739,35 @@ export class InputManager {
     const touch = this.isTouchDevice
       ? Math.sign(rawTouch) * rawTouch * rawTouch * 0.8
       : rawTouch;
-    return Math.abs(touch) > Math.abs(kb) ? touch : kb;
+    const best = Math.abs(touch) > Math.abs(kb) ? touch : kb;
+    // Gamepad overrides if any axis is active (takes precedence over keyboard/touch)
+    const gpAxis = name === 'horizontal' ? this._gamepadAxes.x : -this._gamepadAxes.y;
+    return Math.abs(gpAxis) > 0 ? gpAxis : best;
   }
 
   isAscending(): boolean {
-    return this.isDown(this.bindings.ascend) || this.touchAscend;
+    return this.isDown(this.bindings.ascend) || this.touchAscend || this.touchAscendBtn || this.isGamepadDown(5); // RB
   }
 
   isFastDescending(): boolean {
-    return this.isDown(this.bindings.fastDescend) || this.touchDive;
+    return this.isDown(this.bindings.fastDescend) || this.touchDive || this.touchDiveBtn || this.isGamepadDown(4); // LB
   }
 
   isDive(): boolean {
-    return this.isDown(this.bindings.dive);
+    return this.isDown(this.bindings.dive) || this.isGamepadDown(7); // RT
   }
 
   isGentleDescending(): boolean {
     // Keep Tab as a secondary fallback so existing muscle memory still works.
-    return this.isDown(this.bindings.gentleDescend) || this.isDown('Tab');
+    return this.isDown(this.bindings.gentleDescend) || this.isDown('Tab') || this.isGamepadDown(6); // LT
   }
 
   isMoveForwardHeld(): boolean {
-    return this.isDown(this.bindings.moveForward) || this.isDown('ArrowUp') || this.joyAxis.v > 0.4;
+    return this.isDown(this.bindings.moveForward) || this.isDown('ArrowUp') || this.joyAxis.v > 0.4 || this._gamepadAxes.y < -0.4;
   }
 
   isBrakeHeld(): boolean {
-    return this.isDown(this.bindings.moveBackward) || this.isDown('ArrowDown') || this.joyAxis.v < -0.4;
+    return this.isDown(this.bindings.moveBackward) || this.isDown('ArrowDown') || this.joyAxis.v < -0.4 || this._gamepadAxes.y > 0.4;
   }
 
   isDiveBomb(): boolean {
@@ -692,19 +776,19 @@ export class InputManager {
   }
 
   isPoop(): boolean {
-    return this._mouseClicked || this.touchDrop;
+    return this._mouseClicked || this.touchDrop || this.wasGamepadPressed(0); // A
   }
 
   isBoost(): boolean {
-    return this.wasPressed(this.bindings.boost);
+    return this.wasPressed(this.bindings.boost) || this.wasGamepadPressed(1); // B
   }
 
   wasPausePressed(): boolean {
-    return this.wasPressed(this.bindings.pause);
+    return this.wasPressed(this.bindings.pause) || this.wasGamepadPressed(9); // Start
   }
 
   wasInteractPressed(): boolean {
-    return this.wasPressed(this.bindings.interact) || this.touchBank;
+    return this.wasPressed(this.bindings.interact) || this.touchBank || this.wasGamepadPressed(3); // Y
   }
 
   getEmoteKey(): number {
@@ -764,11 +848,11 @@ export class InputManager {
   }
 
   wasUTurnPressed(): boolean {
-    return this.wasPressed(this.bindings.uTurn) || this.touchUTurn;
+    return this.wasPressed(this.bindings.uTurn) || this.touchUTurn || this.wasGamepadPressed(11); // R3
   }
 
   wasBomberModePressed(): boolean {
-    return this.wasPressed(this.bindings.bomberMode);
+    return this.wasPressed(this.bindings.bomberMode) || this.wasGamepadPressed(8); // Select/Back
   }
 
   get mouseDx(): number {
@@ -791,12 +875,16 @@ export class InputManager {
     return this._rightMouseDown;
   }
 
+  isOrbitActive(): boolean {
+    return this._middleMouseDown;
+  }
+
   wasRightMouseClicked(): boolean {
     return this._rightMouseClicked;
   }
 
   wasGrabPressed(): boolean {
-    return this._rightMouseClicked || this.touchGrabPressed;
+    return this._rightMouseClicked || this.touchGrabPressed || this.wasGamepadPressed(2); // X
   }
 
   /** Seconds since the last keyboard/mouse/touch input */
@@ -805,6 +893,7 @@ export class InputManager {
   }
 
   endFrame(): void {
+    this.pollGamepad();
     this.keysPressed.clear();
     this._mouseDx = 0;
     this._mouseDy = 0;
@@ -813,6 +902,6 @@ export class InputManager {
     this._scrollDelta = 0;
     this.touchUTurn = false;
     this.touchGrabPressed = false;
-    // touchDrop is held (not one-shot), so don't clear it here
+    // touchDrop, touchAscendBtn, touchDiveBtn are held (not one-shot), so don't clear them here
   }
 }

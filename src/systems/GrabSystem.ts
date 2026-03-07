@@ -21,6 +21,7 @@ const CARRY_WEIGHTS: Record<string, number> = {
   // Pets - near full mobility
   cat:                  1.00,
   dog:                  0.98,
+  rat:                  1.00,
   // NPCs - moderate top-speed reduction only
   tourist:              0.96,
   performer:            0.96,
@@ -316,7 +317,7 @@ export class GrabSystem {
   }
 
   /** Get the pet type being carried */
-  getCarriedPetType(): 'cat' | 'dog' | null {
+  getCarriedPetType(): 'cat' | 'dog' | 'rat' | null {
     return this.grabbedPet?.type ?? null;
   }
 

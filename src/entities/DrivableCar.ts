@@ -4,6 +4,7 @@ import { BuildingData } from '../world/City';
 import { DRIVING, WORLD } from '../utils/Constants';
 import { clamp, moveToward, remap } from '../utils/MathUtils';
 import { createToonMaterial } from '../rendering/ToonUtils';
+import { AnimalModelManager } from '../systems/AnimalModelManager';
 
 export type DrivableVehicleType = 'car' | 'motorcycle' | 'helicopter' | 'prop_plane' | 'horse';
 
@@ -55,6 +56,49 @@ export class DrivableCar {
     this.heading = spawnHeading;
     this.mesh.position.copy(spawnPos);
     this.mesh.rotation.y = spawnHeading;
+
+    // Async-load GLB model for horse
+    if (type === 'horse') {
+      this.loadHorseGLB();
+    }
+  }
+
+  private async loadHorseGLB(): Promise<void> {
+    const modelManager = AnimalModelManager.getInstance();
+    const horseMesh = await modelManager.getModel('animal.horse.white');
+    if (!horseMesh) return;
+
+    // Remove all procedural children from the existing mesh
+    while (this.mesh.children.length) {
+      const child = this.mesh.children[0];
+      this.mesh.remove(child);
+      child.traverse(n => {
+        if (n instanceof THREE.Mesh) {
+          n.geometry?.dispose();
+          if (n.material) {
+            if (Array.isArray(n.material)) n.material.forEach(m => m.dispose());
+            else n.material.dispose();
+          }
+        }
+      });
+    }
+
+    // Move children from the GLB group into our existing mesh
+    while (horseMesh.children.length) {
+      const child = horseMesh.children[0];
+      horseMesh.remove(child);
+      this.mesh.add(child);
+    }
+
+    // Clear procedural legs — GLB model uses its own skeleton
+    this.horseLegs = [];
+    this.mesh.userData.horseGLB = true;
+
+    // Copy animation mixer if present
+    if (horseMesh.userData.mixer) {
+      this.mesh.userData.mixer = horseMesh.userData.mixer;
+      this.mesh.userData.animations = horseMesh.userData.animations;
+    }
   }
 
   setBuildings(buildings: BuildingData[]): void {
@@ -650,14 +694,23 @@ export class DrivableCar {
       this.propeller.rotation.z += spinSpeed * dt;
     }
 
-    if (this.type === 'horse' && this.horseLegs.length === 4) {
-      this.horseGaitTime += dt * (3 + Math.abs(this.speed) * 0.25);
-      const swing = Math.sin(this.horseGaitTime) * 0.55;
-      this.horseLegs[0].rotation.x = swing;
-      this.horseLegs[3].rotation.x = swing;
-      this.horseLegs[1].rotation.x = -swing;
-      this.horseLegs[2].rotation.x = -swing;
-      this.horseRideBob = Math.abs(swing) * 0.08;
+    if (this.type === 'horse') {
+      if (this.mesh.userData.horseGLB && this.mesh.userData.mixer) {
+        // GLB horse: update animation mixer
+        this.mesh.userData.mixer.update(dt);
+        this.horseRideBob = Math.abs(this.speed) > 1 ? Math.sin(Date.now() * 0.01) * 0.08 : 0;
+      } else if (this.horseLegs.length === 4) {
+        // Procedural fallback
+        this.horseGaitTime += dt * (3 + Math.abs(this.speed) * 0.25);
+        const swing = Math.sin(this.horseGaitTime) * 0.55;
+        this.horseLegs[0].rotation.x = swing;
+        this.horseLegs[3].rotation.x = swing;
+        this.horseLegs[1].rotation.x = -swing;
+        this.horseLegs[2].rotation.x = -swing;
+        this.horseRideBob = Math.abs(swing) * 0.08;
+      } else {
+        this.horseRideBob = 0;
+      }
     } else {
       this.horseRideBob = 0;
     }
@@ -665,7 +718,7 @@ export class DrivableCar {
     if (this.type === 'car') {
       const throttleInput = input.getAxis('vertical');
       const handbrakeInput = input.isAscending();
-      const braking = throttleInput < 0 && this.speed > 0.5 || handbrakeInput;
+      const braking = (throttleInput < 0 && this.speed > 0.5) || handbrakeInput;
       for (const tl of this.taillights) {
         const mat = tl.material as THREE.MeshToonMaterial;
         mat.color.setHex(braking ? 0xff0000 : 0xff4400);

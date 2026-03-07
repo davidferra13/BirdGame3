@@ -25,6 +25,9 @@ export class Minimap {
   private isLocalTagged = false;
   private animTime = 0;
 
+  // Zoo marker
+  private zooPos: THREE.Vector2 | null = null;
+
   // Murmuration state
   private murmurationMemberIds: Set<string> = new Set();
   private roostPosition: THREE.Vector2 | null = null;
@@ -83,6 +86,10 @@ export class Minimap {
 
   setHotspots(positions: THREE.Vector3[]): void {
     this.hotspots = positions.map(p => new THREE.Vector2(p.x, p.z));
+  }
+
+  setZooPosition(pos: THREE.Vector3): void {
+    this.zooPos = new THREE.Vector2(pos.x, pos.z);
   }
 
   setOtherPlayers(players: Array<{ position: THREE.Vector3; username: string; id?: string }>): void {
@@ -171,6 +178,23 @@ export class Minimap {
       ctx.arc(pos.x, pos.y, 4, 0, Math.PI * 2);
       ctx.fill();
       ctx.stroke();
+    }
+
+    // Draw zoo marker (orange circle with Z)
+    if (this.zooPos) {
+      const zp = this.worldToMap(this.zooPos.x, this.zooPos.y);
+      ctx.fillStyle = 'rgba(255, 160, 50, 0.45)';
+      ctx.strokeStyle = 'rgba(255, 160, 50, 0.9)';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(zp.x, zp.y, 5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = '#ffa032';
+      ctx.font = 'bold 5px Arial';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('Z', zp.x, zp.y);
     }
 
     // Draw roost icon (if set — compact)

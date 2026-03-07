@@ -23,7 +23,8 @@
     "docker:web:run": "docker run --rm -p 8080:80 bird-game-web:local",
     "docker:up": "docker compose up -d --build",
     "docker:up:tunnel": "docker compose --profile tunnel up -d --build",
-    "docker:down": "docker compose down"
+    "docker:down": "docker compose down",
+    "optimize:assets": "node scripts/optimize-assets.mjs"
   },
   "keywords": [],
   "author": "",
@@ -46,6 +47,7 @@
     "@vitest/ui": "^1.0.0",
     "gltf-pipeline": "^4.3.0",
     "jsdom": "^23.0.0",
+    "obj2gltf": "^3.2.0",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3",
     "vite": "^7.3.1",

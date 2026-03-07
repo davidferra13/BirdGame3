@@ -219,9 +219,6 @@ export class LeaderBird {
   addRun(run: LeaderBirdRun): void {
     this.runs.push(run);
     this.runs.sort((a, b) => b.coinsEarned - a.coinsEarned);
-    if (this.runs.length > 50) {
-      this.runs = this.runs.slice(0, 50);
-    }
     this.saveRuns();
   }
 
@@ -239,7 +236,7 @@ export class LeaderBird {
   }
 
   async refresh(): Promise<void> {
-    const content = document.getElementById('leaderboard-content');
+    const content = document.getElementById('leaderbird-content');
     if (!content) return;
 
     if (this.currentTab === 'best') {

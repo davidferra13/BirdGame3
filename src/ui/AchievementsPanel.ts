@@ -114,23 +114,35 @@ export class AchievementsPanel {
 
     // Initialize default achievements then load saved state
     this.initializeDefaultAchievements();
+    this.achievements.push(
+      { id: 'districts_5', name: 'Neighborhood Hopper', description: 'Discover 5 city districts', unlocked: false, icon: '🗺️' },
+      { id: 'districts_all', name: 'City Songbird', description: 'Discover all 15 city districts', unlocked: false, icon: '🐦' },
+    );
+    const zoo20 = this.achievements.find((achievement) => achievement.id === 'zoo_20');
+    if (zoo20) {
+      zoo20.name = 'Safari Stirrer';
+      zoo20.description = 'Visit 20 zoo animals with cheeky drops';
+    }
     this.loadAchievements();
   }
 
   private initializeDefaultAchievements(): void {
     this.achievements = [
-      { id: 'first_hit', name: 'First Strike', description: 'Hit your first NPC', unlocked: false, icon: '💩' },
-      { id: 'heat_10', name: 'Hot Streak', description: 'Reach Heat level 10', unlocked: false, icon: '🔥' },
-      { id: 'heat_20', name: 'Blazing', description: 'Reach Heat level 20', unlocked: false, icon: '🔥🔥' },
-      { id: 'streak_10', name: 'Combo Master', description: 'Achieve a 10x hit streak', unlocked: false, icon: '⚡' },
-      { id: 'bank_1000', name: 'Banker', description: 'Earn 1,000 lifetime coins', unlocked: false, icon: '💰' },
-      { id: 'bank_10000', name: 'Tycoon', description: 'Earn 10,000 lifetime coins', unlocked: false, icon: '💎' },
+      { id: 'first_hit', name: 'First Little Plop', description: 'Land your first playful hit', unlocked: false, icon: '💩' },
+      { id: 'heat_10', name: 'Warm Breeze', description: 'Reach Heat level 10', unlocked: false, icon: '🔥' },
+      { id: 'heat_20', name: 'Golden Glow', description: 'Reach Heat level 20', unlocked: false, icon: '🔥🔥' },
+      { id: 'streak_10', name: 'Smooth Sailing', description: 'Reach a 10x streak', unlocked: false, icon: '⚡' },
+      { id: 'bank_1000', name: 'Nest Egg', description: 'Earn 1,000 lifetime coins', unlocked: false, icon: '💰' },
+      { id: 'bank_10000', name: 'Sky Savings', description: 'Earn 10,000 lifetime coins', unlocked: false, icon: '💎' },
       { id: 'distance_10km', name: 'Wanderer', description: 'Fly a total of 10km', unlocked: false, icon: '🛫' },
       { id: 'distance_100km', name: 'Explorer', description: 'Fly a total of 100km', unlocked: false, icon: '🌍' },
       { id: 'level_10', name: 'Experienced', description: 'Reach level 10', unlocked: false, icon: '⭐' },
       { id: 'level_25', name: 'Master Bird', description: 'Reach level 25', unlocked: false, icon: '🌟' },
-      { id: 'tourist_hunter', name: 'Tourist Trap', description: 'Hit 100 tourists', unlocked: false, icon: '📸' },
-      { id: 'chef_menace', name: "Chef's Nightmare", description: 'Hit 50 chefs', unlocked: false, icon: '👨‍🍳' },
+      { id: 'tourist_hunter', name: 'Familiar Face', description: 'Greet 100 tourists in your own way', unlocked: false, icon: '📸' },
+      { id: 'chef_menace', name: 'Kitchen Regular', description: 'Visit 50 chefs with a playful plop', unlocked: false, icon: '👨‍🍳' },
+      { id: 'zoo_first', name: 'Zoo Day', description: 'Hit your first zoo animal', unlocked: false, icon: '🐘' },
+      { id: 'zoo_all_types', name: 'Full Safari', description: 'Hit an elephant, giraffe, penguin, and monkey', unlocked: false, icon: '🦒' },
+      { id: 'zoo_20', name: 'Zookeeper\'s Nightmare', description: 'Hit 20 zoo animals', unlocked: false, icon: '🐒' },
     ];
   }
 

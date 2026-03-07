@@ -120,6 +120,8 @@ export interface MultiplayerEventCallbacks {
   }) => void;
   onLassoRelease?: (data: { attackerId: string; victimId: string; reason?: string }) => void;
   onLassoWindup?: (data: { attackerId: string; victimId: string; windupMs: number }) => void;
+  onPoopTagReceived?: (data: { attackerId: string; attackerName: string }) => void;
+  onRemoteEmote?: (data: { playerId: string; emoteType: string }) => void;
   onLassoFeedback?: (data: {
     playerId: string;
     status: string;
@@ -363,6 +365,14 @@ export class MultiplayerManager {
         this.eventCallbacks.onHeistMatchEnd?.(message.data);
         break;
 
+      case 'poop-tag':
+        this.eventCallbacks.onPoopTagReceived?.(message.data);
+        break;
+
+      case 'emote':
+        this.eventCallbacks.onRemoteEmote?.(message.data);
+        break;
+
       case 'admin_announce':
         this.eventCallbacks.onAdminAnnounce?.(message.data);
         break;
@@ -525,6 +535,15 @@ export class MultiplayerManager {
 
   // --- Outgoing Messages ---
 
+  // Heat/wanted state for broadcast
+  private _localHeat = 0;
+  private _localWanted = false;
+
+  setLocalHeatState(heat: number, wanted: boolean): void {
+    this._localHeat = heat;
+    this._localWanted = wanted;
+  }
+
   sendPlayerUpdate(): void {
     if (!this.connected || !this.ws) return;
 
@@ -545,6 +564,8 @@ export class MultiplayerManager {
         yaw: this.localBird.controller.yawAngle,
         pitch: this.localBird.controller.pitchAngle,
         speed: this.localBird.controller.forwardSpeed,
+        heat: this._localHeat,
+        wantedFlag: this._localWanted,
         timestamp: now,
       },
     });
@@ -671,6 +692,18 @@ export class MultiplayerManager {
   sendLassoBreakoutPulse(pulse: number = 1): void {
     if (!this.connected || !this.ws) return;
     this.send({ type: 'lasso-breakout', data: { pulse } });
+  }
+
+  /** Notify server that we hit a remote player with poop */
+  sendPoopTag(victimId: string): void {
+    if (!this.connected || !this.ws) return;
+    this.send({ type: 'poop-tag', data: { victimId } });
+  }
+
+  /** Broadcast an emote to nearby players */
+  sendEmote(emoteType: string): void {
+    if (!this.connected || !this.ws) return;
+    this.send({ type: 'emote', data: { emoteType } });
   }
 
   // --- Update Loop ---

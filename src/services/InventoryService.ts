@@ -12,16 +12,25 @@
 import { supabase } from './SupabaseClient';
 import { InventoryItem, CosmeticType } from '../types/database';
 
+const INVENTORY_TIMEOUT_MS = 5000;
+
 /**
  * Get all items in user's inventory
  */
 export async function getInventory(userId: string): Promise<InventoryItem[]> {
   try {
-    const { data, error } = await supabase
-      .from('inventory')
-      .select('*')
-      .eq('user_id', userId)
-      .order('acquired_at', { ascending: false });
+    const result = await Promise.race([
+      supabase
+        .from('inventory')
+        .select('*')
+        .eq('user_id', userId)
+        .order('acquired_at', { ascending: false }),
+      new Promise<{ data: null; error: Error }>((resolve) =>
+        setTimeout(() => resolve({ data: null, error: new Error('Inventory fetch timed out') }), INVENTORY_TIMEOUT_MS)
+      ),
+    ]);
+
+    const { data, error } = result;
 
     if (error) {
       console.error('Failed to fetch inventory:', error);
@@ -67,11 +76,18 @@ export async function getInventoryByType(
  */
 export async function getEquippedItems(userId: string): Promise<InventoryItem[]> {
   try {
-    const { data, error } = await supabase
-      .from('inventory')
-      .select('*')
-      .eq('user_id', userId)
-      .eq('equipped', true);
+    const result = await Promise.race([
+      supabase
+        .from('inventory')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('equipped', true),
+      new Promise<{ data: null; error: Error }>((resolve) =>
+        setTimeout(() => resolve({ data: null, error: new Error('Equipped items fetch timed out') }), INVENTORY_TIMEOUT_MS)
+      ),
+    ]);
+
+    const { data, error } = result;
 
     if (error) {
       console.error('Failed to fetch equipped items:', error);

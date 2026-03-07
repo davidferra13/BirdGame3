@@ -208,6 +208,39 @@ export class VFXSystem {
     // No-op — heat/wanted system removed
   }
 
+  /** Spawn speed trail particles behind the bird during boost/dive */
+  spawnSpeedTrail(position: THREE.Vector3, forward: THREE.Vector3, speed: number, isBoosting: boolean, isDiving: boolean): void {
+    if (this.particles.length >= this.MAX_PARTICLES) return;
+    if (speed < 40 && !isBoosting) return; // Only above certain speed
+
+    // Spawn rate: faster = more particles
+    const intensity = isBoosting ? 1.0 : isDiving ? 0.8 : Math.min((speed - 40) / 50, 0.5);
+    if (Math.random() > intensity * 0.6) return;
+
+    const color = isBoosting ? 0x88ccff : isDiving ? 0xffffff : 0xaaddff;
+    const mesh = this.acquireMesh(color, VFXSystem.sphereGeo);
+
+    // Spawn behind bird + slight random spread
+    mesh.position.copy(position);
+    mesh.position.x += forward.x * -2 + (Math.random() - 0.5) * 1.5;
+    mesh.position.y += forward.y * -2 + (Math.random() - 0.5) * 0.8;
+    mesh.position.z += forward.z * -2 + (Math.random() - 0.5) * 1.5;
+
+    this.scene.add(mesh);
+
+    this.particles.push({
+      mesh,
+      velocity: new THREE.Vector3(
+        forward.x * -speed * 0.3 + (Math.random() - 0.5) * 3,
+        (Math.random() - 0.5) * 2,
+        forward.z * -speed * 0.3 + (Math.random() - 0.5) * 3,
+      ),
+      life: 0.3 + Math.random() * 0.2,
+      maxLife: 0.45,
+      scale: 0.3 + intensity * 0.4,
+    });
+  }
+
   /** Spawn scatter burst when bird flies through NPCs — feather-like outward burst */
   spawnScatterBurst(position: THREE.Vector3, birdSpeed: number, npcCount: number): void {
     if (this.camera) {

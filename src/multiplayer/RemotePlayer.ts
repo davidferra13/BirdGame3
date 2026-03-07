@@ -7,6 +7,9 @@
 import * as THREE from 'three';
 import { createBirdModel, animateWings, loadBirdGLB, swapBirdModel } from '../entities/BirdModel';
 
+const TOASTY_COLOR = 0xffc15a;
+const TOASTY_GLOW = 0xffd27a;
+
 interface Vector3 {
   x: number;
   y: number;
@@ -74,7 +77,7 @@ export class RemotePlayer {
 
   // State
   private heat = 0;
-  private wantedFlag = false;
+  wantedFlag = false;
   private state = 'NORMAL';
   private stunned = false;
   private lastWantedFlag = false; // track changes for nameplate updates
@@ -88,6 +91,9 @@ export class RemotePlayer {
   // Stun visual
   private stunSprite: THREE.Sprite | null = null;
   private stunTime = 0;
+
+  // Wanted glow
+  private wantedGlow: THREE.PointLight | null = null;
 
   constructor(id: string, username: string, scene: THREE.Scene) {
     this.id = id;
@@ -310,7 +316,7 @@ export class RemotePlayer {
 
       // Color based on tagged / wanted status
       const mat = this.simpleMesh.material as THREE.MeshBasicMaterial;
-      mat.color.set(this.taggedFlag ? 0x6B9B30 : this.wantedFlag ? 0xff4444 : 0x44aaff);
+      mat.color.set(this.taggedFlag ? 0x6B9B30 : this.wantedFlag ? TOASTY_COLOR : 0x44aaff);
     }
 
     // Update stun visual
@@ -321,6 +327,14 @@ export class RemotePlayer {
     } else if (this.stunSprite && !this.stunned) {
       this.hideStunEffect();
     }
+
+    // Pulse wanted glow
+    if (this.wantedGlow && this.wantedFlag) {
+      this.wantedGlow.intensity = 1.5 + Math.sin(this.animTime * 4) * 0.8;
+    }
+
+    // Update emote bubble
+    this.updateEmote(dt);
   }
 
   // --- Nameplate ---
@@ -330,13 +344,25 @@ export class RemotePlayer {
     const ctx = canvas.getContext('2d')!;
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Background color based on state
     const bgColor = this.taggedFlag
       ? 'rgba(74, 122, 32, 0.7)'
       : this.wantedFlag
-        ? 'rgba(255, 0, 0, 0.6)'
+        ? 'rgba(214, 143, 54, 0.82)'
         : 'rgba(0, 0, 0, 0.6)';
     ctx.fillStyle = bgColor;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Heat bar at bottom of nameplate
+    if (this.heat > 0) {
+      const heatFraction = Math.min(this.heat / 50, 1);
+      const barWidth = canvas.width * heatFraction;
+      const barHeight = 6;
+      const barY = canvas.height - barHeight;
+      ctx.fillStyle = this.wantedFlag ? '#ffd27a' : '#ffb34d';
+      ctx.fillRect(0, barY, barWidth, barHeight);
+    }
 
     ctx.fillStyle = '#ffffff';
     ctx.font = 'bold 24px Arial';
@@ -344,11 +370,26 @@ export class RemotePlayer {
     ctx.textBaseline = 'middle';
 
     const tagPrefix = this.murmurationTag ? `[${this.murmurationTag}] ` : '';
-    const prefix = this.taggedFlag ? '[IT] ' : tagPrefix;
-    const suffix = this.stunned ? ' [STUNNED]' : '';
-    ctx.fillText(`${prefix}${this.username}${suffix}`, canvas.width / 2, canvas.height / 2);
+    const prefix = this.taggedFlag ? '[IT] ' : this.wantedFlag ? 'TOASTY ' : tagPrefix;
+    const suffix = this.stunned ? ' [WOOZY]' : '';
+    ctx.fillText(`${prefix}${this.username}${suffix}`, canvas.width / 2, canvas.height / 2 - 2);
 
     (this.nameTag.material as THREE.SpriteMaterial).map!.needsUpdate = true;
+
+    // Update wanted glow
+    this.updateWantedGlow();
+  }
+
+  private updateWantedGlow(): void {
+    if (this.wantedFlag && !this.wantedGlow) {
+      this.wantedGlow = new THREE.PointLight(TOASTY_GLOW, 2, 15);
+      this.wantedGlow.position.set(0, 1, 0);
+      this.fullMesh.add(this.wantedGlow);
+    } else if (!this.wantedFlag && this.wantedGlow) {
+      this.wantedGlow.parent?.remove(this.wantedGlow);
+      this.wantedGlow.dispose();
+      this.wantedGlow = null;
+    }
   }
 
   // --- Stun Effects ---
@@ -401,6 +442,18 @@ export class RemotePlayer {
   destroy(): void {
     this.setLOD('hidden');
     this.hideStunEffect();
+    if (this.emoteSprite) {
+      this.emoteSprite.parent?.remove(this.emoteSprite);
+      this.emoteSprite.material.map?.dispose();
+      this.emoteSprite.material.dispose();
+      this.emoteSprite = null;
+      this.activeEmoteLabel = null;
+    }
+    if (this.wantedGlow) {
+      this.wantedGlow.parent?.remove(this.wantedGlow);
+      this.wantedGlow.dispose();
+      this.wantedGlow = null;
+    }
 
     // Dispose full mesh
     this.fullMesh.traverse((obj) => {
@@ -427,6 +480,73 @@ export class RemotePlayer {
     });
   }
 
+  /** Show an emote bubble above this remote player */
+  private emoteSprite: THREE.Sprite | null = null;
+  private emoteTimer = 0;
+  private activeEmoteLabel: string | null = null;
+
+  showEmote(label: string): void {
+    // Remove existing
+    if (this.emoteSprite) {
+      this.emoteSprite.parent?.remove(this.emoteSprite);
+      this.emoteSprite.material.map?.dispose();
+      this.emoteSprite.material.dispose();
+      this.emoteSprite = null;
+    }
+
+    const canvas = document.createElement('canvas');
+    canvas.width = 192;
+    canvas.height = 48;
+    const ctx = canvas.getContext('2d')!;
+    ctx.fillStyle = 'rgba(255, 221, 68, 0.85)';
+    const r = 12;
+    ctx.beginPath();
+    ctx.moveTo(r, 0);
+    ctx.lineTo(canvas.width - r, 0);
+    ctx.quadraticCurveTo(canvas.width, 0, canvas.width, r);
+    ctx.lineTo(canvas.width, canvas.height - r);
+    ctx.quadraticCurveTo(canvas.width, canvas.height, canvas.width - r, canvas.height);
+    ctx.lineTo(r, canvas.height);
+    ctx.quadraticCurveTo(0, canvas.height, 0, canvas.height - r);
+    ctx.lineTo(0, r);
+    ctx.quadraticCurveTo(0, 0, r, 0);
+    ctx.fill();
+
+    ctx.fillStyle = '#333333';
+    ctx.font = 'bold 22px Arial';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(label, canvas.width / 2, canvas.height / 2);
+
+    const texture = new THREE.CanvasTexture(canvas);
+    const material = new THREE.SpriteMaterial({ map: texture, transparent: true });
+    this.emoteSprite = new THREE.Sprite(material);
+    this.emoteSprite.scale.set(3, 0.75, 1);
+    this.emoteSprite.position.y = 5;
+    this.emoteTimer = 2.0;
+    this.activeEmoteLabel = label;
+
+    this.fullMesh.add(this.emoteSprite);
+  }
+
+  private updateEmote(dt: number): void {
+    if (!this.emoteSprite) return;
+    this.emoteTimer -= dt;
+    if (this.emoteTimer <= 0) {
+      this.emoteSprite.parent?.remove(this.emoteSprite);
+      this.emoteSprite.material.map?.dispose();
+      this.emoteSprite.material.dispose();
+      this.emoteSprite = null;
+      this.activeEmoteLabel = null;
+      return;
+    }
+    // Float up and fade
+    this.emoteSprite.position.y += dt * 0.5;
+    if (this.emoteTimer < 0.5) {
+      this.emoteSprite.material.opacity = this.emoteTimer / 0.5;
+    }
+  }
+
   setMurmurationInfo(tag: string | null, color: number | null): void {
     const changed = tag !== this.murmurationTag || color !== this.murmurationColor;
     this.murmurationTag = tag;
@@ -442,5 +562,17 @@ export class RemotePlayer {
 
   getPosition(): THREE.Vector3 {
     return this.currentPosition.clone();
+  }
+
+  getHeat(): number {
+    return this.heat;
+  }
+
+  isToasty(): boolean {
+    return this.wantedFlag;
+  }
+
+  getActiveEmoteLabel(): string | null {
+    return this.activeEmoteLabel;
   }
 }

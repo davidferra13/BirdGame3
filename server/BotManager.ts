@@ -284,6 +284,24 @@ export class BotManager {
     return Array.from(this.bots.keys());
   }
 
+  /** Get bot ID→username map for listing */
+  getBotSummaries(): { id: string; username: string }[] {
+    return Array.from(this.bots.values()).map((b) => ({ id: b.botId, username: b.player.username }));
+  }
+
+  /** Admin: force-spawn one extra bot (ignores population limits) */
+  spawnOneBot(): void {
+    if (this.bots.size >= this.config.maxBots) return;
+    this.spawnBot();
+  }
+
+  /** Admin: force-remove a specific bot by ID */
+  removeOneBot(botId: string): void {
+    if (this.bots.has(botId)) {
+      this.removeBot(botId);
+    }
+  }
+
   /** Cleanup all bots (server shutdown) */
   destroyAll(): void {
     for (const [botId, bot] of this.bots) {

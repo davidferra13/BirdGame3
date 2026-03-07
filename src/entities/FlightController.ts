@@ -44,6 +44,7 @@ export class FlightController {
   isPerched = false;   // grounded on a rooftop (not street level)
   isBoosting = false;
   boostJustActivated = false; // true for one frame on boost start
+  pullOutJustActivated = false; // true for one frame on a successful dive pullout
   isBraking = false;
   isBomberMode = false;
   isGentleDescending = false;
@@ -55,7 +56,7 @@ export class FlightController {
   private flipType: 'front' | 'back' | 'left' | 'right' | 'corkscrewLeft' | 'corkscrewRight' |
                      'sideFlipLeft' | 'sideFlipRight' | 'inverted' | 'aileronRoll' | null = null;
   private flipProgress = 0;
-  private flipDuration = 0.8; // seconds for a complete flip
+  private flipDuration = FLIGHT.FLIP_DURATION; // seconds for a complete flip
   private flipRotation = 0; // accumulated flip rotation
   private flipCooldown = 0; // cooldown between flips
   private isDoubleFlip = false; // whether this is a double flip (720°)
@@ -65,18 +66,25 @@ export class FlightController {
   // U-turn (180° snap turn)
   private isUTurning = false;
   private uTurnProgress = 0;
-  private uTurnDuration = 0.35; // seconds for the 180
+  private uTurnDuration = FLIGHT.U_TURN_DURATION; // seconds for the 180
   private uTurnStartYaw = 0;
   private uTurnCooldown = 0;
 
-  // Callback for flip tracking
+  // Callbacks for flip/dive/U-turn tracking
   onFlipPerformed: ((type: string, isDouble: boolean) => void) | null = null;
+  onDiveStart: ((speed: number) => void) | null = null;
+  onUTurn: (() => void) | null = null;
 
   // Dive-to-speed conversion
   private wasDiving = false;
   private divePeakSpeed = 0;
   private diveMomentumBoost = 0;
   private diveMomentumTimer = 0;
+  private glideFlow = 0;
+  private pendingPullOutAssist = 0;
+  private pendingPullOutTimer = 0;
+  private pullOutAssist = 0;
+  private pullOutTimer = 0;
 
   // Smooth scroll altitude control
   private scrollVelocity = 0;         // current smoothed scroll vertical velocity
@@ -95,6 +103,7 @@ export class FlightController {
     this.isWalkMode = !this.isWalkMode;
 
     if (this.isWalkMode) {
+      this.resetAirflowState();
       this.snapToFloor();
       this.isGrounded = true;
       this.isPerched = this.position.y > FLIGHT.GROUND_ALTITUDE + 1;
@@ -110,6 +119,7 @@ export class FlightController {
     }
 
     // Exiting walk mode always returns the player to flight.
+    this.resetAirflowState();
     this.isGrounded = false;
     this.isPerched = false;
     this.pitchAngle = 0;
@@ -129,6 +139,9 @@ export class FlightController {
     const diveBombInput = input.isDiveBomb();
     const gentleDescentInput = input.isGentleDescending();
     const brakeInput = input.isBrakeHeld();
+
+    this.boostJustActivated = false;
+    this.pullOutJustActivated = false;
 
     // Ground / perch mode
     const rooftopY = this.getRooftopBelow();
@@ -213,9 +226,10 @@ export class FlightController {
         this.yawAngle = this.uTurnStartYaw + Math.PI;
         this.isUTurning = false;
         this.uTurnProgress = 0;
-        this.uTurnCooldown = 0.5;
+        this.uTurnCooldown = FLIGHT.U_TURN_COOLDOWN;
         this.turnMomentum = 0;
         this.rollAngle = 0;
+        this.onUTurn?.();
       } else {
         // Ease-in-out for smooth 180
         const t = this.uTurnProgress;
@@ -228,12 +242,22 @@ export class FlightController {
     if (this.isDiving && !this.wasDiving) {
       // Entering dive
       this.divePeakSpeed = 0;
+      this.onDiveStart?.(this.forwardSpeed);
     } else if (!this.isDiving && this.wasDiving) {
       // Exiting dive - convert dive speed to horizontal momentum
       const diveSpeedGained = this.divePeakSpeed - FLIGHT.BASE_SPEED;
       if (diveSpeedGained > 0) {
         this.diveMomentumBoost = diveSpeedGained * FLIGHT.DIVE_MOMENTUM_CONVERSION;
         this.diveMomentumTimer = FLIGHT.DIVE_MOMENTUM_DURATION;
+        const pullOutStrength = clamp(
+          remap(diveSpeedGained, FLIGHT.PULL_OUT_MIN_DIVE_GAIN, FLIGHT.DIVE_BOMB_SPEED - FLIGHT.BASE_SPEED, 0, 1),
+          0,
+          1,
+        );
+        if (pullOutStrength > 0) {
+          this.pendingPullOutAssist = Math.max(this.pendingPullOutAssist, pullOutStrength);
+          this.pendingPullOutTimer = FLIGHT.PULL_OUT_ACTIVATION_WINDOW;
+        }
       }
     }
     this.wasDiving = this.isDiving;
@@ -242,7 +266,6 @@ export class FlightController {
     if (this.boostCooldown > 0) this.boostCooldown -= dt;
     if (this.boostTimer > 0) this.boostTimer -= dt;
 
-    this.boostJustActivated = false;
     if (input.isBoost() && this.boostCooldown <= 0) {
       this.isBoosting = true;
       this.boostJustActivated = true;
@@ -256,17 +279,20 @@ export class FlightController {
     if (!this.isUTurning) {
       // Yaw input controls roll, roll controls turn rate
       const targetRoll = -yawInput * FLIGHT.MAX_BANK_ANGLE;
-      this.rollAngle = moveToward(this.rollAngle, targetRoll, FLIGHT.BANK_SPEED * dt);
+      const rollResponse = FLIGHT.BANK_SPEED * (1 + this.glideFlow * 0.4);
+      this.rollAngle = moveToward(this.rollAngle, targetRoll, rollResponse * dt);
 
       // Turn rate based on bank angle (like real birds)
+      const pullOutTurnAssist = this.getPullOutBlend();
+      const carveAssist = this.glideFlow * FLIGHT.FLOW_TURN_BONUS + pullOutTurnAssist * FLIGHT.PULL_OUT_TURN_BONUS;
       const bankTurnFactor = Math.sin(this.rollAngle);
-      const speedBasedTurnRate = remap(this.forwardSpeed, 0, FLIGHT.MAX_SPEED, 2.5, 1.2);
-      const effectiveTurnRate = bankTurnFactor * FLIGHT.YAW_RATE * speedBasedTurnRate;
+      const speedBasedTurnRate = remap(this.forwardSpeed, 0, FLIGHT.MAX_SPEED, FLIGHT.TURN_SPEED_MAX_MULT, FLIGHT.TURN_SPEED_MIN_MULT);
+      const effectiveTurnRate = bankTurnFactor * FLIGHT.YAW_RATE * speedBasedTurnRate * (1 + carveAssist);
 
       // IMPROVEMENT #5: Turn inertia - high speed resists rapid direction changes
       const desiredTurn = effectiveTurnRate * dt;
       const speedInertiaFactor = remap(this.forwardSpeed, 0, FLIGHT.MAX_SPEED, 1.0, 0.4);
-      const turnAccel = 12.0 * speedInertiaFactor; // Slower turn response at high speed
+      const turnAccel = FLIGHT.TURN_ACCEL * speedInertiaFactor * (1 + carveAssist * 0.6);
 
       this.turnMomentum = moveToward(this.turnMomentum, desiredTurn, turnAccel * dt);
       this.yawAngle += this.turnMomentum;
@@ -276,28 +302,28 @@ export class FlightController {
     let targetPitchRate = 0;
     if (this.isDiveBombing) {
       // Dive bomb: steeper pitch, faster descent
-      this.pitchAngle = moveToward(this.pitchAngle, FLIGHT.DIVE_BOMB_PITCH, 5.0 * dt);
+      this.pitchAngle = moveToward(this.pitchAngle, FLIGHT.DIVE_BOMB_PITCH, FLIGHT.PITCH_RATE_DIVEBOMB * dt);
       targetPitchRate = 0;
     } else if (this.isDiving) {
-      this.pitchAngle = moveToward(this.pitchAngle, FLIGHT.DIVE_PITCH, 4.0 * dt);
+      this.pitchAngle = moveToward(this.pitchAngle, FLIGHT.DIVE_PITCH, FLIGHT.PITCH_RATE_DIVE * dt);
       targetPitchRate = 0;
     } else if (ascendInput) {
-      this.pitchAngle = moveToward(this.pitchAngle, FLIGHT.MAX_PITCH_UP * 0.5, 3.0 * dt);
+      this.pitchAngle = moveToward(this.pitchAngle, FLIGHT.MAX_PITCH_UP * 0.5, FLIGHT.PITCH_RATE_ASCEND * dt);
       targetPitchRate = 0;
     } else if (this.isBraking) {
-      this.pitchAngle = moveToward(this.pitchAngle, 0, 2.0 * dt);
+      this.pitchAngle = moveToward(this.pitchAngle, 0, FLIGHT.PITCH_RATE_BRAKE * dt);
       targetPitchRate = 0;
     } else if (this.isGentleDescending) {
       // Precision descend takes priority over W pitch-up for better attack-run control.
-      this.pitchAngle = moveToward(this.pitchAngle, FLIGHT.GENTLE_DESCENT_PITCH, 1.5 * dt);
+      this.pitchAngle = moveToward(this.pitchAngle, FLIGHT.GENTLE_DESCENT_PITCH, FLIGHT.PITCH_RATE_GENTLE * dt);
       targetPitchRate = 0;
     } else if (pitchInput > 0) {
       // W key: shallow climb bias so forward speed feels primary (Space remains main vertical control)
-      this.pitchAngle = moveToward(this.pitchAngle, FLIGHT.MAX_PITCH_UP * 0.35, 2.2 * dt);
+      this.pitchAngle = moveToward(this.pitchAngle, FLIGHT.MAX_PITCH_UP * 0.35, FLIGHT.PITCH_RATE_FORWARD * dt);
       targetPitchRate = 0;
     } else {
       // No input: gentle auto-descent pitch
-      this.pitchAngle = moveToward(this.pitchAngle, FLIGHT.AUTO_DESCENT_PITCH, 0.5 * dt);
+      this.pitchAngle = moveToward(this.pitchAngle, FLIGHT.AUTO_DESCENT_PITCH, FLIGHT.PITCH_RATE_AUTODESCENT * dt);
       targetPitchRate = 0;
     }
     const pitchAccel = targetPitchRate !== 0 ? FLIGHT.PITCH_ACCELERATION : FLIGHT.PITCH_DECELERATION;
@@ -305,12 +331,51 @@ export class FlightController {
     this.pitchAngle += this.pitchRate * dt;
     this.pitchAngle = clamp(this.pitchAngle, FLIGHT.MAX_PITCH_DOWN, FLIGHT.MAX_PITCH_UP);
 
+    if (this.pendingPullOutTimer > 0) {
+      this.pendingPullOutTimer -= dt;
+      if (!this.isDiving && !this.isDiveBombing && this.pitchAngle >= FLIGHT.PULL_OUT_TRIGGER_PITCH) {
+        this.pullOutAssist = Math.max(this.pullOutAssist, this.pendingPullOutAssist);
+        this.pullOutTimer = FLIGHT.PULL_OUT_DURATION;
+        this.pendingPullOutAssist = 0;
+        this.pendingPullOutTimer = 0;
+        this.pullOutJustActivated = this.pullOutAssist > 0.15;
+      } else if (this.pendingPullOutTimer <= 0) {
+        this.pendingPullOutAssist = 0;
+      }
+    }
+
+    if (this.pullOutTimer > 0) {
+      this.pullOutTimer = Math.max(0, this.pullOutTimer - dt);
+      if (this.pullOutTimer <= 0) this.pullOutAssist = 0;
+    }
+
+    const pullOutFactor = this.getPullOutBlend();
+    const speedFlowFactor = clamp(remap(this.forwardSpeed, FLIGHT.FLOW_SPEED_START, FLIGHT.FLOW_SPEED_FULL, 0, 1), 0, 1);
+    let pitchFlowFactor = 1;
+    if (this.pitchAngle < FLIGHT.FLOW_PITCH_SWEET_MIN) {
+      pitchFlowFactor = clamp(remap(this.pitchAngle, FLIGHT.MAX_PITCH_DOWN, FLIGHT.FLOW_PITCH_SWEET_MIN, 0, 1), 0, 1);
+    } else if (this.pitchAngle > FLIGHT.FLOW_PITCH_SWEET_MAX) {
+      pitchFlowFactor = clamp(remap(this.pitchAngle, FLIGHT.FLOW_PITCH_SWEET_MAX, FLIGHT.MAX_PITCH_UP, 1, 0), 0, 1);
+    }
+    const bankFactor = clamp(
+      remap(Math.abs(this.rollAngle), FLIGHT.MAX_BANK_ANGLE * FLIGHT.FLOW_BANK_MIN, FLIGHT.MAX_BANK_ANGLE, 0, 1),
+      0,
+      1,
+    );
+    const skimFactor = clamp(remap(this.position.y, FLIGHT.MIN_ALTITUDE + 0.8, FLIGHT.FLOW_SKIM_ALTITUDE, 1, 0), 0, 1);
+    const flowAnchor = Math.max(bankFactor, skimFactor * 0.85 + pullOutFactor * 0.35);
+    const canBuildFlow = !this.isGrounded && !this.isDiving && !this.isDiveBombing && !this.isBraking && !ascendInput;
+    const targetGlideFlow = canBuildFlow ? speedFlowFactor * pitchFlowFactor * flowAnchor : 0;
+    const glideRate = targetGlideFlow > this.glideFlow ? FLIGHT.FLOW_BUILD_RATE : FLIGHT.FLOW_DECAY_RATE;
+    this.glideFlow = moveToward(this.glideFlow, targetGlideFlow, glideRate * dt);
+    const airflow = Math.max(this.glideFlow, pullOutFactor);
+
     // Speed
     // IMPROVEMENT #1: Curve-based acceleration (adds weight/inertia)
     if (this.isDiveBombing) {
       // Dive bomb: much faster speed
       const gap = FLIGHT.DIVE_BOMB_SPEED - this.forwardSpeed;
-      const easeRate = 3.5; // Even faster acceleration
+      const easeRate = FLIGHT.EASE_DIVEBOMB;
       this.forwardSpeed += gap * easeRate * dt;
       // Track peak dive speed for momentum conversion
       if (this.forwardSpeed > this.divePeakSpeed) {
@@ -318,7 +383,7 @@ export class FlightController {
       }
     } else if (this.isDiving) {
       const gap = FLIGHT.DIVE_SPEED - this.forwardSpeed;
-      const easeRate = 2.5; // Ease-out: faster accel as you approach target
+      const easeRate = FLIGHT.EASE_DIVE;
       this.forwardSpeed += gap * easeRate * dt;
       // Track peak dive speed for momentum conversion
       if (this.forwardSpeed > this.divePeakSpeed) {
@@ -328,13 +393,14 @@ export class FlightController {
       // S key: brake to a full stop in flight (only slows down, never speeds up)
       if (this.forwardSpeed > FLIGHT.BRAKE_MIN_SPEED) {
         const gap = FLIGHT.BRAKE_MIN_SPEED - this.forwardSpeed;
-        const easeRate = 3.5; // Faster decel feels heavier
+        const easeRate = FLIGHT.EASE_BRAKE;
         this.forwardSpeed += gap * easeRate * dt;
       }
       // If already at or below brake speed, maintain current speed
     } else {
-      const pitchSpeedMod = remap(this.pitchAngle, -0.8, 0.6, 10, -8);
-      let targetSpeed = FLIGHT.BASE_SPEED + pitchSpeedMod + forwardInput * 12;
+      const pitchSpeedMod = remap(this.pitchAngle, FLIGHT.PITCH_REMAP_MIN_PITCH, FLIGHT.PITCH_REMAP_MAX_PITCH, FLIGHT.PITCH_REMAP_MAX_SPEED, FLIGHT.PITCH_REMAP_MIN_SPEED);
+      let targetSpeed = FLIGHT.BASE_SPEED + pitchSpeedMod + forwardInput * FLIGHT.FORWARD_SPEED_BONUS;
+      targetSpeed += this.glideFlow * FLIGHT.FLOW_SPEED_BONUS + pullOutFactor * FLIGHT.PULL_OUT_SPEED_BONUS;
       if (this.isBoosting) targetSpeed *= FLIGHT.BOOST_MULTIPLIER;
 
       // Apply dive momentum boost
@@ -350,7 +416,7 @@ export class FlightController {
       targetSpeed = clamp(targetSpeed, FLIGHT.MIN_SPEED, speedCap);
       const gap = targetSpeed - this.forwardSpeed;
       // Different rates for accel vs decel (decel faster = more weight)
-      const easeRate = gap > 0 ? 1.8 : 3.0;
+      const easeRate = gap > 0 ? FLIGHT.EASE_ACCEL : FLIGHT.EASE_DECEL;
       this.forwardSpeed += gap * easeRate * dt;
     }
 
@@ -363,16 +429,11 @@ export class FlightController {
         this.flipRotation = 0;
         this.flipType = null;
         this.isDoubleFlip = false;
-        this.flipCooldown = 0.2; // 0.2 second cooldown between flips
+        this.flipCooldown = FLIGHT.FLIP_COOLDOWN;
 
         // Update combo system
         this.flipComboCount++;
-        this.flipComboTimer = 2.0; // 2 second window to continue combo
-
-        // Log combo achievements
-        if (this.flipComboCount >= 3) {
-          console.log(`🎯 Flip Combo x${this.flipComboCount}!`);
-        }
+        this.flipComboTimer = FLIGHT.FLIP_COMBO_WINDOW;
       }
     }
 
@@ -417,16 +478,25 @@ export class FlightController {
     if (!this.isDiving && !ascendInput) {
       const soarFactor = remap(this.forwardSpeed, 0, FLIGHT.MAX_SPEED, 1.0, 0.3);
       const brakeReduction = this.isBraking ? FLIGHT.BRAKE_DESCENT_REDUCTION : 1.0;
-      velocity.y -= FLIGHT.AUTO_DESCENT_RATE * soarFactor * brakeReduction;
+      const descentReduction = clamp(
+        1 - this.glideFlow * FLIGHT.FLOW_DESCENT_REDUCTION - pullOutFactor * FLIGHT.PULL_OUT_DESCENT_REDUCTION,
+        0.2,
+        1,
+      );
+      velocity.y -= FLIGHT.AUTO_DESCENT_RATE * soarFactor * brakeReduction * descentReduction;
     }
 
     // IMPROVEMENT #3: Ground effect lift (risk/reward for low-altitude flight)
-    const groundEffectAltitude = 8;
-    if (this.position.y < groundEffectAltitude && this.forwardSpeed > 20 && !ascendInput) {
-      const heightFactor = 1 - (this.position.y / groundEffectAltitude); // 1 at ground, 0 at threshold
-      const speedFactor = remap(this.forwardSpeed, 20, FLIGHT.MAX_SPEED, 0, 1);
-      const liftBonus = heightFactor * speedFactor * 6; // Counteracts auto-descent
+    if (this.position.y < FLIGHT.GROUND_EFFECT_ALTITUDE && this.forwardSpeed > FLIGHT.GROUND_EFFECT_MIN_SPEED && !ascendInput) {
+      const heightFactor = 1 - (this.position.y / FLIGHT.GROUND_EFFECT_ALTITUDE); // 1 at ground, 0 at threshold
+      const speedFactor = remap(this.forwardSpeed, FLIGHT.GROUND_EFFECT_MIN_SPEED, FLIGHT.MAX_SPEED, 0, 1);
+      const liftBonus = heightFactor * speedFactor * FLIGHT.GROUND_EFFECT_LIFT_BONUS;
       velocity.y += liftBonus;
+    }
+
+    if (airflow > 0 && !ascendInput && !this.isDiving) {
+      const flowLift = this.glideFlow * FLIGHT.FLOW_LIFT_BONUS + pullOutFactor * FLIGHT.PULL_OUT_LIFT_BONUS;
+      velocity.y += flowLift + skimFactor * this.glideFlow * FLIGHT.FLOW_SKIM_LIFT_BONUS;
     }
 
     // Hover descent: when slow, sink more aggressively
@@ -442,21 +512,22 @@ export class FlightController {
     const bankAmount = Math.abs(this.rollAngle / FLIGHT.MAX_BANK_ANGLE);
     if (bankAmount > 0.1 && !ascendInput) {
       const brakeReduction = this.isBraking ? FLIGHT.BRAKE_DESCENT_REDUCTION : 1.0;
-      velocity.y -= FLIGHT.BANK_SINK_RATE * bankAmount * brakeReduction;
+      const bankSinkReduction = clamp(1 - this.glideFlow * FLIGHT.FLOW_BANK_SINK_REDUCTION - pullOutFactor * 0.45, 0.2, 1);
+      velocity.y -= FLIGHT.BANK_SINK_RATE * bankAmount * brakeReduction * bankSinkReduction;
     }
 
     // Scroll wheel altitude control: fast, responsive, momentum-based
     const scrollDelta = input.getScrollDelta();
     if (scrollDelta !== 0) {
       // Each scroll tick gives a big kick — scroll up = rise, scroll down = descend
-      const impulse = clamp(-scrollDelta / 50, -1, 1) * 400;
+      const impulse = clamp(-scrollDelta / FLIGHT.SCROLL_IMPULSE_DIVISOR, -1, 1) * FLIGHT.SCROLL_IMPULSE_SCALE;
       this.scrollVelocity += impulse;
-      this.scrollVelocity = clamp(this.scrollVelocity, -600, 600);
+      this.scrollVelocity = clamp(this.scrollVelocity, -FLIGHT.SCROLL_VELOCITY_MAX, FLIGHT.SCROLL_VELOCITY_MAX);
     }
     if (Math.abs(this.scrollVelocity) > 0.5) {
       velocity.y += this.scrollVelocity * dt;
       // Gentle decay so momentum carries — feels fast but still smooth
-      this.scrollVelocity *= Math.exp(-3 * dt);
+      this.scrollVelocity *= Math.exp(-FLIGHT.SCROLL_DECAY * dt);
     } else {
       this.scrollVelocity = 0;
     }
@@ -488,6 +559,7 @@ export class FlightController {
   }
 
   private handleGroundMode(dt: number, input: InputManager, floorY: number): void {
+    this.resetAirflowState();
     this.isGrounded = true;
     this.isDiving = false;
     this.isBraking = false;
@@ -502,11 +574,12 @@ export class FlightController {
 
     // Full ground locomotion: walk in any direction with WASD/left stick.
     if (moveMag > 0.1) {
-      const nx = horizontalInput / moveMag;
-      const nz = -verticalInput / moveMag;
+      const nx = -horizontalInput / moveMag;
+      const nz = verticalInput / moveMag;
 
-      // Face movement direction while grounded.
-      const targetYaw = Math.atan2(nx, nz);
+      // Face movement direction relative to current heading while grounded.
+      const inputAngle = Math.atan2(nx, nz);
+      const targetYaw = this.yawAngle + inputAngle;
       const yawDelta = Math.atan2(Math.sin(targetYaw - this.yawAngle), Math.cos(targetYaw - this.yawAngle));
       this.yawAngle += clamp(yawDelta, -FLIGHT.YAW_RATE * dt * 1.2, FLIGHT.YAW_RATE * dt * 1.2);
 
@@ -559,7 +632,7 @@ export class FlightController {
    * Subdivides large displacements into smaller steps to prevent tunneling through buildings.
    */
   private moveWithCollision(displacement: THREE.Vector3): void {
-    const SUBSTEP_SIZE = 1.0; // Max movement per substep (< birdRadius of 1.5)
+    const SUBSTEP_SIZE = FLIGHT.SUBSTEP_SIZE; // Max movement per substep (< birdRadius of 1.5)
     const totalDist = displacement.length();
 
     if (totalDist < 0.0001) return;
@@ -582,7 +655,7 @@ export class FlightController {
           this.totalDistanceFlown += _slideVec.length();
         } else {
           // Can't move at all — reduce speed and stop stepping
-          this.forwardSpeed *= 0.7;
+          this.forwardSpeed *= FLIGHT.COLLISION_SLIDE_FACTOR;
           break;
         }
       } else {
@@ -599,7 +672,7 @@ export class FlightController {
    * If the bird is currently inside a building, push it out to the nearest surface.
    */
   private depenetrate(): void {
-    const birdRadius = 1.5;
+    const birdRadius = FLIGHT.BIRD_RADIUS;
     const px = this.position.x;
     const py = this.position.y;
     const pz = this.position.z;
@@ -621,7 +694,7 @@ export class FlightController {
         if (distSq > 0.0001) {
           // Push outward along the penetration direction
           const dist = Math.sqrt(distSq);
-          const pushDist = birdRadius - dist + 0.1; // small extra margin
+          const pushDist = birdRadius - dist + FLIGHT.DEPENETRATION_MARGIN;
           this.position.x += (dx / dist) * pushDist;
           this.position.z += (dz / dist) * pushDist;
         } else {
@@ -632,13 +705,13 @@ export class FlightController {
           const distToBack = Math.abs(pz - (b.position.z + halfD));
           const minDist = Math.min(distToLeft, distToRight, distToFront, distToBack);
 
-          if (minDist === distToLeft) this.position.x = b.position.x - halfW - birdRadius - 0.1;
-          else if (minDist === distToRight) this.position.x = b.position.x + halfW + birdRadius + 0.1;
-          else if (minDist === distToFront) this.position.z = b.position.z - halfD - birdRadius - 0.1;
-          else this.position.z = b.position.z + halfD + birdRadius + 0.1;
+          if (minDist === distToLeft) this.position.x = b.position.x - halfW - birdRadius - FLIGHT.DEPENETRATION_MARGIN;
+          else if (minDist === distToRight) this.position.x = b.position.x + halfW + birdRadius + FLIGHT.DEPENETRATION_MARGIN;
+          else if (minDist === distToFront) this.position.z = b.position.z - halfD - birdRadius - FLIGHT.DEPENETRATION_MARGIN;
+          else this.position.z = b.position.z + halfD + birdRadius + FLIGHT.DEPENETRATION_MARGIN;
         }
 
-        this.forwardSpeed *= 0.5;
+        this.forwardSpeed *= FLIGHT.DEPENETRATION_SPEED_FACTOR;
         return; // Fix one penetration per frame to avoid jitter
       }
     }
@@ -650,8 +723,8 @@ export class FlightController {
     const px = this.position.x;
     const pz = this.position.z;
     for (const b of this.buildings) {
-      const halfW = b.width / 2 + 0.3;
-      const halfD = b.depth / 2 + 0.3;
+      const halfW = b.width / 2 + FLIGHT.ROOFTOP_MARGIN;
+      const halfD = b.depth / 2 + FLIGHT.ROOFTOP_MARGIN;
       if (
         px >= b.position.x - halfW && px <= b.position.x + halfW &&
         pz >= b.position.z - halfD && pz <= b.position.z + halfD &&
@@ -672,7 +745,7 @@ export class FlightController {
 
   /** Check if a position would collide with any building */
   private checkBuildingCollision(position: THREE.Vector3): { hasCollision: boolean; normal: THREE.Vector3 } {
-    const birdRadius = 1.5; // Collision radius around the bird
+    const birdRadius = FLIGHT.BIRD_RADIUS; // Collision radius around the bird
     const px = position.x;
     const py = position.y;
     const pz = position.z;
@@ -722,7 +795,7 @@ export class FlightController {
       // Moving into the surface - project displacement onto the surface plane
       out.copy(displacement);
       out.addScaledVector(collisionNormal, -normalDot);
-      out.multiplyScalar(0.8); // Reduce speed slightly when sliding
+      out.multiplyScalar(FLIGHT.SLIDE_SPEED_FACTOR); // Reduce speed slightly when sliding
     } else {
       // Moving away from surface, allow normal movement
       out.copy(displacement);
@@ -755,6 +828,28 @@ export class FlightController {
     this.position.z = clamp(this.position.z, -hard, hard);
   }
 
+  private resetAirflowState(): void {
+    this.glideFlow = 0;
+    this.pendingPullOutAssist = 0;
+    this.pendingPullOutTimer = 0;
+    this.pullOutAssist = 0;
+    this.pullOutTimer = 0;
+    this.pullOutJustActivated = false;
+  }
+
+  getGlideFlow(): number {
+    return this.glideFlow;
+  }
+
+  getPullOutBlend(): number {
+    if (this.pullOutTimer <= 0 || this.pullOutAssist <= 0) return 0;
+    return this.pullOutAssist * clamp(this.pullOutTimer / FLIGHT.PULL_OUT_DURATION, 0, 1);
+  }
+
+  getAirflow(): number {
+    return Math.max(this.glideFlow, this.getPullOutBlend());
+  }
+
   getQuaternion(): THREE.Quaternion {
     _euler.set(this.pitchAngle, this.yawAngle, this.rollAngle, 'YXZ');
     _quat.setFromEuler(_euler);
@@ -784,14 +879,14 @@ export class FlightController {
           _flipAxis.set(0, 0, 1);
           _corkscrewRoll.setFromAxisAngle(_flipAxis, -flipRot);
           _flipAxis.set(1, 0, 0);
-          _corkscrewPitch.setFromAxisAngle(_flipAxis, flipRot * 0.3);
+          _corkscrewPitch.setFromAxisAngle(_flipAxis, flipRot * FLIGHT.CORKSCREW_PITCH_MULT);
           _flipQuat.multiplyQuaternions(_corkscrewRoll, _corkscrewPitch);
           break;
         case 'corkscrewRight':
           _flipAxis.set(0, 0, 1);
           _corkscrewRoll.setFromAxisAngle(_flipAxis, flipRot);
           _flipAxis.set(1, 0, 0);
-          _corkscrewPitch.setFromAxisAngle(_flipAxis, flipRot * 0.3);
+          _corkscrewPitch.setFromAxisAngle(_flipAxis, flipRot * FLIGHT.CORKSCREW_PITCH_MULT);
           _flipQuat.multiplyQuaternions(_corkscrewRoll, _corkscrewPitch);
           break;
         case 'sideFlipLeft':
@@ -804,7 +899,7 @@ export class FlightController {
           break;
         case 'inverted':
           _flipAxis.set(1, 0, 0);
-          _flipQuat.setFromAxisAngle(_flipAxis, flipRot * 0.5);
+          _flipQuat.setFromAxisAngle(_flipAxis, flipRot * FLIGHT.INVERTED_PITCH_MULT);
           break;
         case 'aileronRoll':
           _flipAxis.set(0, 0, 1);
@@ -834,28 +929,25 @@ export class FlightController {
     this.isDoubleFlip = isDouble;
 
     // Set duration based on flip type
-    let baseDuration = 0.8;
+    let baseDuration = FLIGHT.FLIP_DURATION;
     switch (type) {
       case 'aileronRoll':
-        baseDuration = 1.2; // Slower, smoother roll
+        baseDuration = FLIGHT.AILERON_ROLL_DURATION;
         break;
       case 'corkscrewLeft':
       case 'corkscrewRight':
-        baseDuration = 1.0; // Spiral takes longer
+        baseDuration = FLIGHT.CORKSCREW_DURATION;
         break;
       case 'inverted':
-        baseDuration = 0.6; // Quick half flip
+        baseDuration = FLIGHT.INVERTED_DURATION;
         break;
       default:
-        baseDuration = 0.8; // Standard flip duration
+        baseDuration = FLIGHT.FLIP_DURATION;
         break;
     }
 
     // Double flips take longer
-    this.flipDuration = isDouble ? baseDuration * 1.6 : baseDuration;
-
-    // Log flip initiation
-    console.log(`🎪 ${isDouble ? 'Double ' : ''}${type} flip!`);
+    this.flipDuration = isDouble ? baseDuration * FLIGHT.FLIP_DOUBLE_MULT : baseDuration;
 
     // Notify flip tracker
     this.onFlipPerformed?.(type, isDouble);

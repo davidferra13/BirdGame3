@@ -18,9 +18,16 @@ export interface FlightRing {
 export class FlightRingSystem {
   private rings: FlightRing[] = [];
   readonly group = new THREE.Group();
+  private elapsed = 0;
 
   // Callback for ring collection tracking
   onRingCollected: (() => void) | null = null;
+
+  // Chain bonus: consecutive ring passes within a time window
+  private chainCount = 0;
+  private chainTimer = 0;
+  private static readonly CHAIN_WINDOW = 8; // seconds to maintain chain
+  private static readonly CHAIN_BONUS_PER = 25; // extra coins per chain level
 
   constructor(cityBounds: { minX: number; maxX: number; minZ: number; maxZ: number }) {
     this.generateRings(cityBounds);
@@ -85,6 +92,16 @@ export class FlightRingSystem {
   }
 
   update(dt: number): void {
+    this.elapsed += dt;
+
+    // Decay chain timer
+    if (this.chainTimer > 0) {
+      this.chainTimer -= dt;
+      if (this.chainTimer <= 0) {
+        this.chainCount = 0;
+      }
+    }
+
     for (const ring of this.rings) {
       // Rotate rings slowly
       ring.mesh.rotation.z += ring.rotationSpeed * dt;
@@ -98,14 +115,14 @@ export class FlightRingSystem {
         }
       }
 
-      // Gentle bobbing animation
+      // Gentle bobbing animation (delta-time based)
       if (!ring.collected) {
-        ring.mesh.position.y = ring.position.y + Math.sin(Date.now() / 1000 + ring.position.x) * 2;
+        ring.mesh.position.y = ring.position.y + Math.sin(this.elapsed + ring.position.x) * 2;
       }
     }
   }
 
-  checkCollision(playerPos: THREE.Vector3, onCollect: (reward: number) => void): boolean {
+  checkCollision(playerPos: THREE.Vector3, onCollect: (reward: number, chainLevel: number) => void): boolean {
     for (const ring of this.rings) {
       if (ring.collected) continue;
 
@@ -116,7 +133,14 @@ export class FlightRingSystem {
         ring.respawnTime = FLIGHT_RINGS.RESPAWN_TIME;
         ring.mesh.visible = false;
 
-        onCollect(FLIGHT_RINGS.PASS_THROUGH_REWARD);
+        // Update chain
+        this.chainCount++;
+        this.chainTimer = FlightRingSystem.CHAIN_WINDOW;
+
+        const chainBonus = Math.max(0, this.chainCount - 1) * FlightRingSystem.CHAIN_BONUS_PER;
+        const totalReward = FLIGHT_RINGS.PASS_THROUGH_REWARD + chainBonus;
+
+        onCollect(totalReward, this.chainCount);
 
         // Notify ring tracker
         this.onRingCollected?.();
@@ -125,6 +149,11 @@ export class FlightRingSystem {
       }
     }
     return false;
+  }
+
+  /** Current ring chain count (resets after CHAIN_WINDOW seconds). */
+  getChainCount(): number {
+    return this.chainCount;
   }
 
   getVisibleRings(): FlightRing[] {

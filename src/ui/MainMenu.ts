@@ -73,7 +73,7 @@ export class MainMenu {
     const subtitle = document.createElement('div');
     subtitle.style.cssText =
       'font-size:18px;color:rgba(255,255,255,0.7);margin-bottom:60px;letter-spacing:2px;';
-    subtitle.textContent = 'Poop on everything.';
+    subtitle.textContent = 'Glide, explore, and stir up a little mischief.';
     this.container.appendChild(subtitle);
 
     // Buttons

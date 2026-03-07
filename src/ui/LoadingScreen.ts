@@ -12,17 +12,19 @@ export class LoadingScreen {
   private tipElement: HTMLElement;
   private startTime: number = 0;
   private minDisplayTime: number = 500; // Minimum 500ms to prevent flash
+  private tipIntervalId: number | null = null;
+  private tipSwapTimeoutId: number | null = null;
 
   constructor() {
     this.loadingTips = [
       'Tip: Press SPACE to ascend and K to descend',
       'Tip: Hit NPCs to earn coins and build your streak',
       'Tip: Banking in the sanctuary saves your coins',
-      'Tip: Watch your heat level - get wanted at 5+',
+      'Tip: A little heat boosts rewards, and banking cools you off',
       'Tip: Dive bombing builds massive speed!',
       'Tip: Complete missions for bonus rewards',
       'Tip: Customize your bird in the shop',
-      'Tip: Explore all 14 districts of the city',
+      'Tip: Explore all 15 districts for cozy discovery rewards',
     ];
 
     this.container = this.createLoadingUI();
@@ -35,7 +37,7 @@ export class LoadingScreen {
     document.body.appendChild(this.container);
 
     // Rotate tips every 3 seconds
-    setInterval(() => this.rotateTip(), 3000);
+    this.tipIntervalId = window.setInterval(() => this.rotateTip(), 3000);
   }
 
   private createLoadingUI(): HTMLElement {
@@ -306,10 +308,16 @@ export class LoadingScreen {
   private rotateTip(): void {
     if (this.container.style.display !== 'flex') return;
 
+    if (this.tipSwapTimeoutId !== null) {
+      clearTimeout(this.tipSwapTimeoutId);
+      this.tipSwapTimeoutId = null;
+    }
+
     this.tipElement.style.opacity = '0';
-    setTimeout(() => {
+    this.tipSwapTimeoutId = window.setTimeout(() => {
       this.tipElement.textContent = this.getRandomTip();
       this.tipElement.style.opacity = '0.7';
+      this.tipSwapTimeoutId = null;
     }, 300);
 
     this.tipElement.style.transition = 'opacity 0.3s';
@@ -319,6 +327,14 @@ export class LoadingScreen {
    * Remove the loading screen from DOM
    */
   public dispose(): void {
+    if (this.tipIntervalId !== null) {
+      clearInterval(this.tipIntervalId);
+      this.tipIntervalId = null;
+    }
+    if (this.tipSwapTimeoutId !== null) {
+      clearTimeout(this.tipSwapTimeoutId);
+      this.tipSwapTimeoutId = null;
+    }
     if (this.container.parentElement) {
       this.container.parentElement.removeChild(this.container);
     }

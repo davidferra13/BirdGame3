@@ -18,7 +18,9 @@ export type PvPEventType =
   | 'countdown-tick'
   | 'heist-slam'
   | 'heist-grab'
-  | 'heist-score';
+  | 'heist-score'
+  | 'platform-hit'
+  | 'sprint-milestone';
 
 type PvPEventCallback = (data: any) => void;
 

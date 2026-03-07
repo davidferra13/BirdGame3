@@ -35,8 +35,8 @@ export class TutorialSystem {
     this.steps = [
       { text: `${moveKeys} + MOUSE: Move and steer`, condition: 'move', dismissed: false },
       { text: `${bindingToDisplayName(bindings, 'ascend')} to fly up`, condition: 'fly', dismissed: false },
-      { text: 'LEFT CLICK to drop', condition: 'drop', dismissed: false },
-      { text: 'High Heat means more danger and bigger rewards', condition: 'heat', dismissed: false },
+      { text: 'LEFT CLICK to let one drift', condition: 'drop', dismissed: false },
+      { text: 'A little Heat boosts rewards and settles while you cruise', condition: 'heat', dismissed: false },
       { text: `Reach the green beam and hold ${bindingToDisplayName(bindings, 'interact')} to bank`, condition: 'bank', dismissed: false },
     ];
 
@@ -51,7 +51,7 @@ export class TutorialSystem {
       'font-size:36px;font-weight:bold;color:rgba(255,255,255,0.9);' +
       'text-shadow:0 0 15px rgba(255,255,255,0.5),2px 2px 6px rgba(0,0,0,0.8);' +
       'pointer-events:none;letter-spacing:4px;text-align:center;transition:opacity 1s;';
-    this.hookElement.textContent = 'Drop it.';
+    this.hookElement.textContent = 'Try a little drop.';
     this.container.appendChild(this.hookElement);
   }
 

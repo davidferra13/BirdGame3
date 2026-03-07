@@ -12,7 +12,7 @@ export class InviteFriends {
   constructor(referralService: ReferralService) {
     this.referralService = referralService;
     this.gameUrl = referralService.getShareUrl();
-    this.shareText = 'Check out Bird Game 3D - the funniest browser game! Poop on everything!';
+    this.shareText = 'Check out Bird Game 3D, a cozy browser flyer about gliding, exploring, and a little mischief.';
 
     this.container = document.createElement('div');
     this.container.style.cssText = `
@@ -63,7 +63,7 @@ export class InviteFriends {
       margin-bottom: 20px;
       font-size: 14px;
     `;
-    subtitle.textContent = 'Spread the word and get your friends playing!';
+    subtitle.textContent = 'Invite a friend along for a cozy city glide.';
     panel.appendChild(subtitle);
 
     // Referral stats (if any)

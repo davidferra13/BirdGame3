@@ -15,23 +15,31 @@ import { ScoreSystem } from './systems/ScoreSystem';
 import { BankingSystem } from './systems/BankingSystem';
 import { PlayerStateMachine } from './systems/PlayerStateMachine';
 import { HotspotSystem } from './systems/HotspotSystem';
-import { ProgressionSystem } from './systems/ProgressionSystem';
+import { ProgressionSystem, type ChallengeRewardPayout } from './systems/ProgressionSystem';
 import { CosmeticsSystem } from './systems/CosmeticsSystem';
 import { AudioSystem } from './systems/AudioSystem';
 import { VFXSystem } from './systems/VFXSystem';
-import { EmoteSystem } from './systems/EmoteSystem';
+import {
+  EmoteSystem,
+  type EmoteType,
+  getEmoteChatLine,
+  getEmoteFromCommand,
+  getEmoteLabel,
+} from './systems/EmoteSystem';
 import { FlightRingSystem } from './systems/FlightRingSystem';
 import { CollectibleSystem } from './systems/CollectibleSystem';
 import { TimeWeatherSystem } from './systems/TimeWeatherSystem';
 import { EnvironmentSystem } from './systems/EnvironmentSystem';
 import { AirTrafficSystem } from './systems/AirTrafficSystem';
 import { ComboSystem } from './systems/ComboSystem';
-import { MissionSystem } from './systems/MissionSystem';
+import { MissionSystem, type MissionRewardPayout } from './systems/MissionSystem';
 import { GrabSystem } from './systems/GrabSystem';
 import { VehicleSystem } from './systems/VehicleSystem';
 import { DrivingSystem } from './systems/DrivingSystem';
 import { HorseLassoSystem } from './systems/HorseLassoSystem';
 import { StreetLifeSystem } from './systems/StreetLifeSystem';
+import { ZooSystem } from './systems/ZooSystem';
+import { AnimalModelManager } from './systems/AnimalModelManager';
 import { FirearmSystem } from './systems/FirearmSystem';
 import { AbilityManager } from './systems/abilities/AbilityManager';
 import { ABILITY_CHARGE } from './systems/abilities/AbilityTypes';
@@ -47,7 +55,7 @@ import { AchievementsPanel } from './ui/AchievementsPanel';
 import { KeyboardHelper } from './ui/KeyboardHelper';
 import { SharePrompt } from './ui/SharePrompt';
 import { SpeedEffects } from './ui/SpeedEffects';
-import { SCORE, FLIGHT, WORLD, ALTITUDE_WARNING, NPC_CONFIG, ECONOMY } from './utils/Constants';
+import { SCORE, FLIGHT, WORLD, ALTITUDE_WARNING, NPC_CONFIG, ECONOMY, PVP } from './utils/Constants';
 import { BuildingData } from './world/City';
 import { SANCTUARY } from './world/Sanctuary';
 import { MultiplayerManager } from './multiplayer/MultiplayerManager';
@@ -61,6 +69,7 @@ import { PoopTagMode } from './pvp/modes/PoopTagMode';
 import { RaceMode } from './pvp/modes/RaceMode';
 import { PoopCoverMode } from './pvp/modes/PoopCoverMode';
 import { HeistMode } from './pvp/modes/HeistMode';
+import { StatueSprintMode } from './pvp/modes/StatueSprintMode';
 import { MurmurationSystem } from './systems/MurmurationSystem';
 import { MvMPvPManager } from './systems/MvMPvPManager';
 import { MurmurationPanel } from './ui/MurmurationPanel';
@@ -97,6 +106,7 @@ export class Game {
   private drivingSystem: DrivingSystem;
   private horseLasso: HorseLassoSystem;
   private streetLife: StreetLifeSystem;
+  private zooSystem: ZooSystem;
   private abilityManager: AbilityManager;
   private firearmSystem: FirearmSystem;
   private droppedGunMesh: THREE.Group | null = null;
@@ -131,6 +141,7 @@ export class Game {
   private paused = false;
   private audioInitialized = false;
   private multiplayerEnabled = true;  // Enable multiplayer by default
+  private _mpSendAccum = 0;
 
   // Performance monitoring
   private fpsCounter: HTMLDivElement | null = null;
@@ -148,6 +159,9 @@ export class Game {
   // Altitude warning grace period
   private groundingGraceTimer = 0;
   private easterEggBuffer = '';
+  private zooDiscovered = false;
+  private zooTypesHit = new Set<string>();
+  private discoveredDistricts = new Set<string>();
   private breakoutPulseCooldown = 0;
   private lastBreakoutKey = '';
 
@@ -212,6 +226,12 @@ export class Game {
     this.scene.add(this.bird.mesh);
     this.setupFirstSpawn(this.city.buildings);
 
+    // Wire camera collision against building meshes
+    const buildingMeshes = this.city.buildings
+      .map(b => b.mesh)
+      .filter((m): m is THREE.Object3D => m !== undefined);
+    this.cameraController.setCollidableMeshes(buildingMeshes);
+
     // Poop
     this.poopManager = new PoopManager(this.scene);
 
@@ -235,14 +255,20 @@ export class Game {
     this.comboSystem = new ComboSystem();
     this.comboSystem.onComboTierAchieved = (tierName: string) => {
       const tierMap: Record<string, number> = {
-        'DOUBLE!': 1, 'TRIPLE!': 2, 'MULTI KILL!': 3,
-        'MEGA COMBO!': 4, 'ULTRA COMBO!': 5, 'LEGENDARY!!!': 6,
+        'DOUBLE!': 1, 'TRIPLE!': 2, 'SWIFT SWOOP!': 3,
+        'BREEZY FLOW!': 4, 'SKY DANCE!': 5, 'GOLDEN GLIDE!': 6,
       };
       const tier = tierMap[tierName] || 1;
       this.audio.playComboTierUp(tier);
-      // Screen flash on combo tier-ups (gold flash, intensity scales with tier)
+      // Screen flash + camera punch on combo tier-ups
       if (this.speedEffects) {
         this.speedEffects.triggerFlash(Math.min(tier * 0.2, 1), 'gold');
+      }
+      // Camera shake scales with tier for satisfying combo feel
+      this.cameraController.triggerShake(0.03 + tier * 0.02, 0.12 + tier * 0.02);
+      // Impact cam for mega tiers and above
+      if (tier >= 4) {
+        this.cameraEffects.triggerImpactCam(tier * 8);
       }
     };
     this.missionSystem = new MissionSystem();
@@ -284,11 +310,18 @@ export class Game {
     this.scene.add(this.drivingSystem.group);
     this.horseLasso = new HorseLassoSystem(this.scene);
 
+    // Preload animal 3D models (async — proceeds in background)
+    AnimalModelManager.getInstance().preloadAll();
+
     this.streetLife = new StreetLifeSystem(
       { minX: -750, maxX: 750, minZ: -750, maxZ: 750 },
       this.city.streetPaths,
     );
     this.scene.add(this.streetLife.group);
+
+    // Zoo area with elephant
+    this.zooSystem = new ZooSystem();
+    this.scene.add(this.zooSystem.group);
 
     // Ability system (Flock Frenzy, Poop Storm, Sonic Screech, etc.)
     this.abilityManager = new AbilityManager();
@@ -296,10 +329,17 @@ export class Game {
     this.abilityManager.setPlayerLevel(this.progression.level);
     this.scene.add(this.abilityManager.group);
 
-    // Wire flip callback for ability charge
+    // Wire flight action callbacks for ability charge + audio
     this.bird.controller.onFlipPerformed = (type: string, isDouble: boolean) => {
       this.abilityManager.addCharge(ABILITY_CHARGE.PER_FLIP * (isDouble ? 2 : 1));
       this.abilityManager.notifyPlayerFlip(type);
+      this.audio.playFlipSnap();
+    };
+    this.bird.controller.onDiveStart = (speed: number) => {
+      this.audio.playDiveWhoosh(speed);
+    };
+    this.bird.controller.onUTurn = () => {
+      this.audio.playUTurn();
     };
 
     // UI
@@ -324,6 +364,7 @@ export class Game {
       worldSize: WORLD.CITY_SIZE,
     });
     this.minimap.setSanctuaryPosition(SANCTUARY.POSITION);
+    this.minimap.setZooPosition(this.zooSystem.getCenter());
     this.leaderbird = new LeaderBird();
     this.achievementsPanel = new AchievementsPanel();
     this.keyboardHelper = new KeyboardHelper();
@@ -388,6 +429,7 @@ export class Game {
     const heistMode = new HeistMode();
     heistMode.setCamera(this.cameraController.camera);
     this.pvpManager.registerMode(heistMode);
+    this.pvpManager.registerMode(new StatueSprintMode());
     this.pvpManager.init({
       scene: this.scene,
       bird: this.bird,
@@ -457,7 +499,7 @@ export class Game {
       this.multiplayer.setEventCallbacks({
         onConnectionStatus: (status, detail) => {
           if (status === 'connected') {
-            this.chatUI.addMessage('System', 'Multiplayer connected', true);
+            this.chatUI.addMessage('System', 'Friendly flock connected.', true);
             return;
           }
           if (status === 'connecting') {
@@ -526,12 +568,37 @@ export class Game {
         onLassoFeedback: (data) => {
           this.horseLasso.onServerFeedback(data, this.multiplayer?.getPlayerId() ?? null);
         },
+        onPoopTagReceived: (data) => {
+          this.chatUI.addMessage('System', `${data.attackerName} sent a playful plop your way.`, true);
+          this.speedEffects.triggerFlash(0.5, 'white');
+          this.cameraController.triggerShake(0.15, 0.2);
+          this.hud.showStatusMessage('PLOPPED!', '#8B4513', 1.8);
+        },
+        onRemoteEmote: (data) => {
+          const rp = this.multiplayer?.getRemotePlayerById(data.playerId);
+          if (rp) {
+            const emoteType = (['squawk', 'flap', 'spin', 'salute'] as const)
+              .find((type) => type === data.emoteType);
+            if (emoteType) {
+              rp.showEmote(getEmoteLabel(emoteType));
+              this.chatUI.addMessage('System', `${rp.username} ${getEmoteChatLine(emoteType)}.`, true);
+            } else {
+              rp.showEmote(data.emoteType);
+            }
+          }
+        },
         onAdminAnnounce: (data) => {
           this.chatUI.addMessage('[SERVER]', data.message, true);
         },
         onAdminKicked: (_data) => {
           this.chatUI.addMessage('System', 'You have been kicked by an admin.', true);
           this.multiplayer?.disconnect();
+        },
+        onAdminTeleport: (data) => {
+          this.bird.controller.position.set(data.x, data.y, data.z);
+        },
+        onAdminWarn: (data) => {
+          this.chatUI.addMessage('[WARNING]', data.message, true);
         },
       });
 
@@ -599,6 +666,8 @@ export class Game {
       return;
     }
 
+    this.syncAbilityScoreModifiers();
+
     // --- Intro phase: bird perched on rooftop, "Drop it." prompt ---
     if (this.introPhase) {
       // Allow poop drop even during intro (bird is stationary)
@@ -630,8 +699,16 @@ export class Game {
         this.collisionSystem.update(
           this.poopManager, this.npcManager, this.scoreSystem,
           this.playerState, this.coinPopups, this.bird, this.vfx, this.cameraController,
+          () => this.registerSuccessfulHit({ abilityCharge: ABILITY_CHARGE.PER_NPC_HIT }),
         );
       }
+      const currentTime = performance.now() / 1000;
+      this.comboSystem.update(dt, this.scoreSystem.streak, currentTime);
+      this.scoreSystem.comboBonus = this.comboSystem.getBonusMultiplier();
+      this.missionSystem.update(dt);
+      this.scoreSystem.update(dt);
+      this.syncHeatProgress();
+      this.applyProgressionRewards();
       this.sanctuary.update(dt);
       this.tutorial.update(dt);
       this.coinPopups.update(dt);
@@ -648,8 +725,7 @@ export class Game {
     if (emoteKey > 0) {
       const emote = this.emoteSystem.getEmoteFromKey(emoteKey);
       if (emote) {
-        this.emoteSystem.triggerEmote(emote);
-        this.audio.playEmote();
+        this.triggerPlayerEmote(emote);
       }
     }
     this.emoteSystem.update(dt);
@@ -715,6 +791,7 @@ export class Game {
       !this.playerState.isDriving &&
       this.firearmSystem.canAttemptFire(this.bird);
     if (canUseFirearm && this.input.isPoop()) {
+      const prevFirearmCoins = this.scoreSystem.coins;
       consumedPrimaryActionByFirearm = this.firearmSystem.tryFire(
         this.bird,
         this.npcManager,
@@ -724,6 +801,13 @@ export class Game {
         this.audio,
         this.poopManager,
       );
+      if (this.scoreSystem.coins > prevFirearmCoins) {
+        this.registerSuccessfulHit({
+          playMomentumAudio: false,
+          showImpactEffects: false,
+          abilityCharge: ABILITY_CHARGE.PER_NPC_HIT,
+        });
+      }
     }
 
     // Poop
@@ -752,8 +836,10 @@ export class Game {
     const inHotspot = this.hotspotSystem.isInsideHotspot(this.bird.controller.position);
     this.scoreSystem.inHotspot = inHotspot;
 
+    // District bonus: each district has a unique perk
+    this.updateDistrictBonus();
+
     // Collisions
-    const prevCoins = this.scoreSystem.coins;
     this.collisionSystem.update(
       this.poopManager,
       this.npcManager,
@@ -763,6 +849,7 @@ export class Game {
       this.bird,
       this.vfx,
       this.cameraController,
+      () => this.registerSuccessfulHit({ abilityCharge: ABILITY_CHARGE.PER_NPC_HIT }),
     );
 
     // Bird-body scatter: fly through NPCs to knock them around
@@ -779,7 +866,7 @@ export class Game {
       // Cluster bonus for bowling through groups
       if (count >= NPC_CONFIG.SCATTER_CLUSTER_THRESHOLD) {
         scatterCoins += NPC_CONFIG.SCATTER_CLUSTER_BONUS;
-        const label = count >= 5 ? 'BOWLING STRIKE!' : 'SCATTER!';
+        const label = count >= 5 ? 'BREEZY SWEEP!' : 'SWOOP!';
         this._tmpVec3A.copy(scatterResult.centerPos);
         this._tmpVec3A.y += 3;
         this.coinPopups.spawn(this._tmpVec3A, scatterCoins, 1.0, label);
@@ -813,6 +900,7 @@ export class Game {
 
         const hitResult = npc.onHit();
         this.scoreSystem.onHitWithValues(hitResult.coins, hitResult.heat, npc.npcType);
+        this.registerSuccessfulHit({ showImpactEffects: false });
 
         this._tmpVec3A.copy(hit.position);
         this._tmpVec3A.y += 2;
@@ -825,42 +913,6 @@ export class Game {
       }
     }
 
-    // Audio + progression: hit detection
-    if (this.scoreSystem.coins > prevCoins) {
-      // IMPROVEMENT #4: Momentum-based hit audio
-      const speed = this.bird.controller.forwardSpeed;
-      const altitude = this.bird.controller.position.y;
-      const momentumFactor = (speed / 80) * 0.7 + (altitude / 100) * 0.3;
-      this.audio.playHit(momentumFactor);
-      this.tutorial.hasHitNPC = true;
-      this.progression.recordHit(this.scoreSystem.lastHitNPCType || undefined);
-      this.progression.recordStreak(this.scoreSystem.streak);
-
-      // Combo system
-      const currentTime = performance.now() / 1000;
-      this.comboSystem.onHit(currentTime);
-
-      // Mission system
-      this.missionSystem.recordHit(this.scoreSystem.lastHitNPCType || undefined);
-      this.missionSystem.recordStreak(this.scoreSystem.streak);
-
-      // Impact cam & screen shake on big hits
-      const hitValue = this.scoreSystem.lastHitPoints;
-      this.cameraEffects.triggerImpactCam(hitValue);
-      this.cameraEffects.triggerScreenShake(Math.min(hitValue / 20, 2));
-
-      // Screen flash on significant hits
-      if (hitValue >= 15) {
-        this.speedEffects.triggerFlash(Math.min(hitValue / 40, 1), hitValue >= 30 ? 'gold' : 'white');
-      }
-
-      // Achievement checks on hit
-      this.checkAchievements();
-
-      // Ability charge from NPC hits
-      this.abilityManager.addCharge(ABILITY_CHARGE.PER_NPC_HIT);
-    }
-
     // Update combo system and apply bonuses
     const currentTime = performance.now() / 1000;
     this.comboSystem.update(dt, this.scoreSystem.streak, currentTime);
@@ -871,6 +923,7 @@ export class Game {
 
     // Heat changes
     this.scoreSystem.update(dt);
+    this.syncHeatProgress();
 
     this.sanctuary.update(dt);
 
@@ -917,13 +970,6 @@ export class Game {
             this.sharePrompt.prompt({ type: 'banking', amount });
           }
 
-          // Check challenges
-          for (const c of [...this.progression.dailyChallenges, ...this.progression.weeklyChallenges]) {
-            if (c.completed) {
-              this.hud.showChallengeComplete(c.description);
-            }
-          }
-
           // Achievement checks after banking
           this.checkAchievements();
 
@@ -937,6 +983,8 @@ export class Game {
         this.bankingSystem.reset();
       }
     }
+
+    this.applyProgressionRewards();
 
     // Grounding check (with altitude warning + grace period)
     this.checkGrounding(dt);
@@ -975,7 +1023,16 @@ export class Game {
     // Cosmetics trail
     this.cosmetics.updateTrail(this.bird.controller.position);
 
-    // VFX
+    // VFX — speed trail behind bird during boost/dive
+    {
+      const ctrl = this.bird.controller;
+      if (!ctrl.isGrounded) {
+        this.vfx.spawnSpeedTrail(
+          ctrl.position, ctrl.getForward(), ctrl.forwardSpeed,
+          ctrl.isBoosting, ctrl.isDiving,
+        );
+      }
+    }
     this.vfx.update(dt);
     this.firearmSystem.update(dt);
     this.updateDroppedGunPickup(dt);
@@ -1016,6 +1073,22 @@ export class Game {
           );
           for (const hit of statueHits) {
             this.pvpManager.onPoopHitStatue(hit.playerId, hit.accuracy, hit.position);
+            this.poopManager.spawnImpact(hit.position);
+          }
+        }
+      }
+
+      // Statue Sprint: check poop-vs-assigned-platform hits
+      if (roundState.mode === 'statue-sprint' && roundState.phase === 'active') {
+        const sprintMode = this.pvpManager.getCurrentMode() as StatueSprintMode;
+        const assignedPos = sprintMode.getAssignedPlatformPosition(localPvPPlayerId);
+        if (assignedPos) {
+          const platformHits = this.collisionSystem.checkPvPStatueHits(
+            poops, localPvPPlayerId, assignedPos, PVP.SPRINT_PLATFORM_RADIUS,
+          );
+          for (const hit of platformHits) {
+            const pidx = sprintMode.getPlayerPlatformIndex(localPvPPlayerId);
+            this.pvpManager.onPlatformHit(hit.playerId, pidx, hit.position);
             this.poopManager.spawnImpact(hit.position);
           }
         }
@@ -1087,8 +1160,13 @@ export class Game {
     if (this.multiplayer && this.multiplayer.isConnected()) {
       this.multiplayer.update(dt);
 
+      // Sync heat/wanted state so other players see it
+      this.multiplayer.setLocalHeatState(this.scoreSystem.heat, this.scoreSystem.isWanted);
+
       // Send player position every 50ms (20 updates/sec)
-      if (this.playerState.canMove) {
+      this._mpSendAccum = (this._mpSendAccum ?? 0) + dt;
+      if (this.playerState.canMove && this._mpSendAccum >= 0.05) {
+        this._mpSendAccum = 0;
         this.multiplayer.sendPlayerUpdate();
       }
     }
@@ -1102,13 +1180,17 @@ export class Game {
     // Ambient city volume (louder at low altitude)
     this.audio.updateAmbientCity(this.bird.controller.position.y);
 
-    // Adaptive music intensity: ramps up with streak, combo, and speed
+    // Adaptive music intensity: ramps up with streak, combo, speed, and heat
     {
       const streakFactor = Math.min(this.scoreSystem.streak / 8, 0.5);
       const comboFactor = this.comboSystem.getBonusMultiplier() > 1 ? 0.3 : 0;
       const speedFactor = Math.max(0, (this.bird.controller.forwardSpeed - 40) / 60) * 0.2;
-      this.audio.setMusicIntensity(streakFactor + comboFactor + speedFactor);
+      const heatFactor = this.scoreSystem.heatFraction * 0.4;
+      this.audio.setMusicIntensity(streakFactor + comboFactor + speedFactor + heatFactor);
     }
+
+    // Update bird wanted glow based on heat
+    this.bird.setWanted(this.scoreSystem.isWanted);
 
     // Speed effects overlay (speed lines, screen flash, danger vignette)
     this.speedEffects.update(
@@ -1117,18 +1199,29 @@ export class Game {
       FLIGHT.DIVE_SPEED,
       this.bird.controller.isDiving,
       this.bird.controller.isBoosting,
+      this.bird.controller.getAirflow(),
     );
 
-    // Danger vignette when low with coins
+    // Danger vignette: altitude danger OR high heat
     {
       const alt = this.bird.controller.position.y;
       const hasCoins = this.scoreSystem.coins > 0;
+      let dangerOpacity = 0;
+
+      // Low altitude with coins
       if (hasCoins && this.playerState.canBeGrounded && alt <= ALTITUDE_WARNING.DANGER_ALTITUDE) {
         const danger = 1 - (alt - SCORE.GROUNDING_ALTITUDE) / (ALTITUDE_WARNING.DANGER_ALTITUDE - SCORE.GROUNDING_ALTITUDE);
-        this.speedEffects.setDangerVignette(Math.max(0, Math.min(0.6, danger * 0.6)));
-      } else {
-        this.speedEffects.setDangerVignette(0);
+        dangerOpacity = Math.max(0, Math.min(0.6, danger * 0.6));
       }
+
+      // High heat pulsing vignette (adds tension when wanted)
+      if (this.scoreSystem.isWanted) {
+        const heatPulse = 0.15 + Math.sin(this.gameElapsed * 3) * 0.05;
+        const heatVignette = this.scoreSystem.heatFraction * heatPulse;
+        dangerOpacity = Math.max(dangerOpacity, heatVignette);
+      }
+
+      this.speedEffects.setDangerVignette(dangerOpacity);
     }
 
     // Progression distance
@@ -1153,17 +1246,17 @@ export class Game {
     if (!this.firearmSystem.isUnlocked()) {
       this.firearmSystem.unlock();
       this.bird.setGunVisible(true);
-      this.chatUI.addMessage('System', '🔫 Secret unlocked! PEWPEW mode activated!', true);
+      this.chatUI.addMessage('System', 'Secret unlocked! Toy blaster mode activated!', true);
     } else {
       const nowVisible = !this.bird.hasGun();
       this.bird.setGunVisible(nowVisible);
       if (nowVisible) {
         // Picking up: remove any dropped gun from the world
         this.removeDroppedGun();
-        this.chatUI.addMessage('System', 'Sidearm drawn. 🔫', true);
+        this.chatUI.addMessage('System', 'Toy blaster ready.', true);
       } else {
         this.dropGun();
-        this.chatUI.addMessage('System', 'Sidearm holstered. Gun dropped — anyone can pick it up!', true);
+        this.chatUI.addMessage('System', 'Toy blaster tucked away. It dropped nearby if you want it again.', true);
       }
     }
   }
@@ -1246,7 +1339,7 @@ export class Game {
         this.removeDroppedGun();
         if (!this.firearmSystem.isUnlocked()) this.firearmSystem.unlock();
         this.bird.setGunVisible(true);
-        this.chatUI.addMessage('System', 'You picked up the gun! 🔫', true);
+        this.chatUI.addMessage('System', 'You picked up the toy blaster.', true);
       }
     }
   }
@@ -1262,8 +1355,19 @@ export class Game {
     }
   }
 
+  private triggerPlayerEmote(emote: EmoteType): void {
+    if (this.emoteSystem.currentEmote) return;
+    this.emoteSystem.triggerEmote(emote);
+    this.audio.playEmote();
+    if (this.multiplayer && this.multiplayer.isConnected()) {
+      this.multiplayer.sendEmote(emote);
+    }
+  }
+
   private handleChatInput(message: string): void {
     const trimmed = message.trim();
+    if (!trimmed) return;
+
     const normalized = trimmed.toLowerCase();
 
     if (normalized === 'pewpew') {
@@ -1272,7 +1376,52 @@ export class Game {
       return;
     }
 
-    this.multiplayer?.sendChat(message);
+    if (normalized === '/help') {
+      this.chatUI.addMessage(
+        'System',
+        'Bird chat: /chirp, /flap, /spin, /salute, /hello, /party',
+        true,
+      );
+      return;
+    }
+
+    const emoteCommand = getEmoteFromCommand(normalized);
+    if (emoteCommand) {
+      this.triggerPlayerEmote(emoteCommand);
+      this.hud.showStatusMessage(getEmoteLabel(emoteCommand), '#ffd36b', 1.2);
+      return;
+    }
+
+    if (normalized === '/hello' || normalized === '/hi') {
+      this.triggerPlayerEmote('salute');
+      if (this.multiplayer?.isConnected()) {
+        this.multiplayer.sendChat('Hello, flock!');
+      } else {
+        this.chatUI.addMessage('System', 'Hello, flock!', true);
+      }
+      return;
+    }
+
+    if (normalized === '/party') {
+      this.triggerPlayerEmote('spin');
+      if (this.multiplayer?.isConnected()) {
+        this.multiplayer.sendChat('Sky party over here!');
+      } else {
+        this.chatUI.addMessage('System', 'Sky party over here!', true);
+      }
+      return;
+    }
+
+    if (!this.multiplayer?.isConnected()) {
+      this.chatUI.addMessage(
+        'System',
+        'Multiplayer chat is resting right now. Try /chirp, /flap, /spin, /salute, or /hello.',
+        true,
+      );
+      return;
+    }
+
+    this.multiplayer.sendChat(trimmed);
   }
 
   private readTypedLetters(): string[] {
@@ -1328,7 +1477,7 @@ export class Game {
     }
     if (this.input.wasPressed('F1')) this.keyboardHelper.toggle();
 
-    return this.paused || this.shopMenu.visible || this.chatUI.isActive() || this.murmurationPanel.isVisible;
+    return this.paused || this.shopMenu.visible || this.murmurationPanel.isVisible;
   }
 
   private handleLassoBreakoutInput(dt: number): void {
@@ -1434,6 +1583,10 @@ export class Game {
             // Apply height bonus to coin value before scoring
             const boostedCoins = Math.floor(coins * heightBonus);
             this.scoreSystem.onHitWithValues(boostedCoins, heat, npcType);
+            this.registerSuccessfulHit({
+              showImpactEffects: false,
+              abilityCharge: ABILITY_CHARGE.PER_NPC_HIT,
+            });
             this._tmpVec3A.copy(throwPos);
             this._tmpVec3A.y += 2;
             const popupPos = this._tmpVec3A;
@@ -1518,13 +1671,229 @@ export class Game {
     }
   }
 
+  // District bonus mapping: different areas of the city reward different playstyles
+  private static readonly DISTRICT_BONUSES: Record<string, { bonus: number; label: string }> = {
+    'Financial District':  { bonus: 0.20, label: '+20% Coins' },
+    'Downtown Core':       { bonus: 0.10, label: '+10% Coins' },
+    'Market Street':       { bonus: 0.15, label: '+15% Coins' },
+    'Entertainment':       { bonus: 0.15, label: '+15% Coins' },
+    'Stadium District':    { bonus: 0.10, label: '+10% Coins' },
+    'Shopping Plaza':      { bonus: 0.10, label: '+10% Coins' },
+    'Industrial Zone':     { bonus: 0.25, label: '+25% Coins' },
+    'Warehouse District':  { bonus: 0.20, label: '+20% Coins' },
+    'Cemetery':            { bonus: 0.30, label: '+30% Coins' },
+    'Harbor':              { bonus: 0.15, label: '+15% Coins' },
+  };
+
+  private _prevDistrictName = '';
+
+  private updateDistrictBonus(): void {
+    const district = this.city.getDistrict(this.bird.controller.position);
+    const name = district?.name ?? '';
+    if (name === this._prevDistrictName) return;
+    this._prevDistrictName = name;
+
+    const entry = name ? Game.DISTRICT_BONUSES[name] : undefined;
+    this.scoreSystem.districtBonus = entry?.bonus ?? 0;
+    this.scoreSystem.districtBonusName = entry?.label ?? '';
+  }
+
+  private syncAbilityScoreModifiers(): void {
+    this.abilityManager.setPlayerLevel(this.progression.level);
+    this.scoreSystem.coinGainMultiplier = this.abilityManager.getCoinMultiplier();
+    this.scoreSystem.heatGainMultiplier = this.abilityManager.getHeatMultiplier();
+  }
+
+  private syncHeatProgress(): void {
+    this.progression.recordHeat(this.scoreSystem.heat);
+    this.missionSystem.recordHeat(this.scoreSystem.heat);
+  }
+
+  private registerSuccessfulHit(
+    options: {
+      countsAsNPCHit?: boolean;
+      playMomentumAudio?: boolean;
+      showImpactEffects?: boolean;
+      abilityCharge?: number;
+    } = {},
+  ): void {
+    const {
+      countsAsNPCHit = true,
+      playMomentumAudio = true,
+      showImpactEffects = true,
+      abilityCharge = 0,
+    } = options;
+
+    const hitValue = this.scoreSystem.lastHitPoints;
+    if (hitValue <= 0) return;
+
+    if (playMomentumAudio) {
+      const speed = this.bird.controller.forwardSpeed;
+      const altitude = this.bird.controller.position.y;
+      const momentumFactor = (speed / 80) * 0.7 + (altitude / 100) * 0.3;
+      this.audio.playHit(momentumFactor);
+    }
+
+    if (countsAsNPCHit) {
+      this.tutorial.hasHitNPC = true;
+    }
+    if (this.scoreSystem.heat >= 5) {
+      this.tutorial.hasReachedHighHeat = true;
+    }
+
+    const npcType = this.scoreSystem.lastHitNPCType || undefined;
+    if (countsAsNPCHit) {
+      this.progression.recordHit(npcType);
+    }
+    this.progression.recordStreak(this.scoreSystem.streak);
+    this.syncHeatProgress();
+
+    const currentTime = performance.now() / 1000;
+    this.comboSystem.onHit(currentTime);
+
+    if (countsAsNPCHit) {
+      this.missionSystem.recordHit(npcType);
+    }
+    this.missionSystem.recordStreak(this.scoreSystem.streak);
+
+    if (showImpactEffects) {
+      this.cameraEffects.triggerImpactCam(hitValue);
+      this.cameraEffects.triggerScreenShake(Math.min(hitValue / 20, 2));
+
+      if (hitValue >= 15) {
+        this.speedEffects.triggerFlash(Math.min(hitValue / 40, 1), hitValue >= 30 ? 'gold' : 'white');
+      }
+    }
+
+    this.checkAchievements();
+
+    if (abilityCharge > 0) {
+      this.abilityManager.addCharge(abilityCharge);
+    }
+  }
+
+  private applyProgressionRewards(): void {
+    const missionRewards = this.missionSystem.consumeRewardQueue();
+    const levelBeforeRewards = this.progression.level;
+
+    for (const reward of missionRewards) {
+      this.applyMissionReward(reward);
+    }
+
+    const challengeRewards = this.progression.collectCompletedRewards();
+    for (const reward of challengeRewards) {
+      this.applyChallengeReward(reward);
+    }
+
+    if (missionRewards.length > 0 || challengeRewards.length > 0) {
+      this.notifyProgressionLevelGain(levelBeforeRewards);
+      this.checkAchievements();
+    }
+  }
+
+  private applyMissionReward(reward: MissionRewardPayout): void {
+    if (reward.reward.coins > 0) {
+      this.scoreSystem.bankedCoins += reward.reward.coins;
+    }
+    if (reward.reward.xp > 0) {
+      this.progression.addXP(reward.reward.xp);
+    }
+    if (reward.reward.feathers > 0) {
+      this.progression.feathers += reward.reward.feathers;
+    }
+
+    const rewardSummary = this.formatRewardSummary(reward.reward);
+    this.hud.showChallengeComplete(
+      rewardSummary ? `${reward.title} (${rewardSummary})` : reward.title,
+      'MISSION',
+    );
+  }
+
+  private applyChallengeReward(reward: ChallengeRewardPayout): void {
+    if (reward.reward.coins > 0) {
+      this.scoreSystem.bankedCoins += reward.reward.coins;
+    }
+
+    const rewardSummary = this.formatRewardSummary(reward.reward);
+    this.hud.showChallengeComplete(
+      rewardSummary ? `${reward.description} (${rewardSummary})` : reward.description,
+    );
+  }
+
+  private notifyProgressionLevelGain(previousLevel: number): void {
+    if (this.progression.level <= previousLevel) return;
+
+    this.hud.showLevelUp(this.progression.level);
+    this.audio.playLevelUp();
+    if (this.progression.level >= 5) {
+      this.sharePrompt.prompt({ type: 'level', level: this.progression.level });
+    }
+    this.murmurationSystem.onLevelUp();
+  }
+
+  private formatRewardSummary(reward: {
+    coins?: number;
+    xp?: number;
+    feathers?: number;
+    worms?: number;
+    goldenEggs?: number;
+  }): string {
+    const parts: string[] = [];
+    if (reward.coins) parts.push(`+${reward.coins} coins`);
+    if (reward.xp) parts.push(`+${reward.xp} XP`);
+    if (reward.feathers) parts.push(`+${reward.feathers} feathers`);
+    if (reward.worms) parts.push(`+${reward.worms} worms`);
+    if (reward.goldenEggs) parts.push(`+${reward.goldenEggs} golden egg${reward.goldenEggs === 1 ? '' : 's'}`);
+    return parts.join(', ');
+  }
+
+  getDiscoveredDistricts(): string[] {
+    return [...this.discoveredDistricts];
+  }
+
+  setDiscoveredDistricts(districtNames: string[]): void {
+    const validDistrictNames = new Set(this.city.districts.map(district => district.name));
+    this.discoveredDistricts = new Set(districtNames.filter(name => validDistrictNames.has(name)));
+    this.progression.recordDistrictDiscovery(this.discoveredDistricts.size);
+  }
+
+  private handleDistrictPresence(): void {
+    const district = this.city.getDistrict(this.bird.controller.position);
+    if (!district) return;
+
+    this.missionSystem.recordDistrictVisit(district.name);
+
+    if (this.discoveredDistricts.has(district.name)) return;
+
+    this.discoveredDistricts.add(district.name);
+    const reward = { coins: 25, xp: 10 };
+    const previousLevel = this.progression.level;
+
+    this.scoreSystem.bankedCoins += reward.coins;
+    this.progression.addXP(reward.xp);
+    this.progression.recordDistrictDiscovery(this.discoveredDistricts.size);
+
+    const rewardSummary = this.formatRewardSummary(reward);
+    const totalDistricts = this.city.districts.length;
+    const progressLabel = `${this.discoveredDistricts.size}/${totalDistricts}`;
+
+    this.hud.showChallengeComplete(
+      rewardSummary ? `${district.name} (${rewardSummary})` : district.name,
+      'DISCOVERED',
+    );
+    this.hud.showStatusMessage(`COZY CORNER ${progressLabel}`, '#8fd3ff', 2.3);
+    this.notifyProgressionLevelGain(previousLevel);
+    this.checkAchievements();
+  }
+
   /** Flight rings, collectibles, thermals, weather, clouds, traffic, vehicles, street life, world poop hits. */
   private updateWorldSystems(dt: number): void {
     this.flightRings.update(dt);
-    this.flightRings.checkCollision(this.bird.controller.position, (reward) => {
+    this.flightRings.checkCollision(this.bird.controller.position, (reward, chainLevel) => {
       this.scoreSystem.coins += reward;
       this.scoreSystem.worms += ECONOMY.WORMS_PER_RING_CHAIN;
-      this.coinPopups.spawn(this.bird.controller.position, reward, 1.0);
+      const chainLabel = chainLevel > 1 ? `RING CHAIN x${chainLevel}!` : undefined;
+      this.coinPopups.spawn(this.bird.controller.position, reward, 1.0, chainLabel);
       this.audio.playHit();
       this.missionSystem.recordRingCollection();
     });
@@ -1565,23 +1934,40 @@ export class Game {
     this.airTraffic.update(dt, this.bird.controller.position, this.scoreSystem.isWanted);
     this.vehicleSystem.update(dt, this.bird.controller.position);
     this.streetLife.update(dt, this.bird.controller.position);
+    this.zooSystem.update(dt, this.bird.controller.position, this.streetLife.getAnimals());
+    this.handleDistrictPresence();
+
+    // Zoo discovery announcement
+    if (!this.zooDiscovered && this.zooSystem.isInsideBounds(this.bird.controller.position)) {
+      this.zooDiscovered = true;
+      this.hud.showChallengeComplete('Welcome to the Zoo! Make the rounds for bonus coins.', 'ZOO');
+    }
 
     // Poop vs vehicles, food carts, and drones
     const activePoops = this.poopManager.getActivePoops();
 
     this.vehicleSystem.checkPoopHits(activePoops, (result) => {
       this.scoreSystem.onHitWithValues(result.coins, result.heat, 'tourist');
+      this.registerSuccessfulHit({
+        countsAsNPCHit: false,
+        playMomentumAudio: false,
+        showImpactEffects: false,
+      });
       this.scoreSystem.worms += ECONOMY.WORMS_PER_DRIVING_HIT;
       this._tmpVec3A.copy(result.position);
       this._tmpVec3A.y += 3;
       this.coinPopups.spawn(this._tmpVec3A, result.coins, 1.0);
       this.audio.playHit();
-      this.streetLife.scarePigeonsNear(result.position);
       this.abilityManager.addCharge(ABILITY_CHARGE.PER_VEHICLE_HIT);
     });
 
     this.streetLife.checkPoopHits(activePoops, (result) => {
       this.scoreSystem.onHitWithValues(result.coins, result.heat, 'tourist');
+      this.registerSuccessfulHit({
+        countsAsNPCHit: false,
+        playMomentumAudio: false,
+        showImpactEffects: false,
+      });
       this._tmpVec3A.copy(result.position);
       this._tmpVec3A.y += 4;
       this.coinPopups.spawn(this._tmpVec3A, result.coins, 1.2);
@@ -1589,8 +1975,36 @@ export class Game {
       this.abilityManager.addCharge(ABILITY_CHARGE.PER_VEHICLE_HIT);
     });
 
+    this.zooSystem.checkPoopHits(activePoops, (result) => {
+      this.scoreSystem.onHitWithValues(result.coins, result.heat, 'tourist');
+      this.registerSuccessfulHit({
+        countsAsNPCHit: false,
+        playMomentumAudio: false,
+        showImpactEffects: false,
+      });
+      this._tmpVec3A.copy(result.position);
+      this._tmpVec3A.y += 5;
+      const label = result.animalType === 'elephant' ? 'DUMBO DROP!'
+        : result.animalType === 'giraffe' ? 'LONG SHOT!'
+        : result.animalType === 'monkey' ? 'MONKEY BUSINESS!'
+        : 'PENGUIN SPLAT!';
+      this.coinPopups.spawn(this._tmpVec3A, result.coins, 1.5, label);
+      this.audio.playHit();
+      this.abilityManager.addCharge(ABILITY_CHARGE.PER_VEHICLE_HIT);
+
+      // Track zoo hits for missions, challenges, and achievements
+      this.missionSystem.recordZooHit();
+      this.progression.recordZooHit();
+      this.checkZooAchievements(result.animalType);
+    });
+
     this.airTraffic.checkDroneHits(activePoops, (result) => {
       this.scoreSystem.onHitWithValues(result.coins, result.heat, 'tourist');
+      this.registerSuccessfulHit({
+        countsAsNPCHit: false,
+        playMomentumAudio: false,
+        showImpactEffects: false,
+      });
       this.scoreSystem.worms += ECONOMY.WORMS_PER_DRONE;
       this._tmpVec3A.copy(result.position);
       this._tmpVec3A.y += 2;
@@ -1598,6 +2012,65 @@ export class Game {
       this.audio.playHit();
       this.abilityManager.addCharge(ABILITY_CHARGE.PER_VEHICLE_HIT);
     });
+
+    // Poop vs remote players (multiplayer poop-tag outside PvP)
+    if (this.multiplayer && this.multiplayer.isConnected() && !this.pvpManager.isInRound()) {
+      this.checkMultiplayerPoopHits(activePoops);
+    }
+  }
+
+  /** Check if any active poops hit remote players — awards coins + sends network event. */
+  private _mpPoopHitCooldowns = new Map<string, number>();
+  private checkMultiplayerPoopHits(poops: import('./entities/Poop').Poop[]): void {
+    if (!this.multiplayer) return;
+    const remotePlayers = this.multiplayer.getRemotePlayers();
+    if (remotePlayers.length === 0) return;
+
+    const HIT_RADIUS_SQ = 16;
+    const HIT_COOLDOWN = 3;
+    const TAG_COINS = 25;
+    const TAG_HEAT = 2;
+
+    for (const poop of poops) {
+      if (!poop.alive || poop.grounded) continue;
+      const poopPos = poop.mesh.position;
+
+      for (const rp of remotePlayers) {
+        if (rp.getLOD() === 'hidden') continue;
+        const cd = this._mpPoopHitCooldowns.get(rp.id);
+        if (cd !== undefined && cd > 0) continue;
+
+        const rpPos = rp.getPosition();
+        const dx = poopPos.x - rpPos.x;
+        const dy = poopPos.y - rpPos.y;
+        const dz = poopPos.z - rpPos.z;
+        if (dx * dx + dy * dy + dz * dz >= HIT_RADIUS_SQ) continue;
+
+        poop.kill();
+        this.poopManager.spawnImpact(rpPos);
+
+        const isTargetToasty = rp.isToasty();
+        const bountyBonus = isTargetToasty ? 50 : 0;
+        this.scoreSystem.onHitWithValues(TAG_COINS + bountyBonus, TAG_HEAT);
+        this._tmpVec3A.set(rpPos.x, rpPos.y + 4, rpPos.z);
+        const label = isTargetToasty ? 'GOLDEN PLOP!' : 'POOP TAG!';
+        this.coinPopups.spawn(this._tmpVec3A, this.scoreSystem.lastHitPoints, this.scoreSystem.lastHitMultiplier, label);
+        this.audio.playHit();
+        this.cameraController.triggerShake(0.1, 0.15);
+        this.multiplayer!.sendPoopTag(rp.id);
+        this._mpPoopHitCooldowns.set(rp.id, HIT_COOLDOWN);
+        this.chatUI.addMessage('System',
+          isTargetToasty ? `Golden plop! You tagged toasty bird ${rp.username}.` : `You plopped ${rp.username}.`,
+          true);
+        break;
+      }
+    }
+
+    for (const [id, timer] of this._mpPoopHitCooldowns) {
+      const newTimer = timer - (1 / 60);
+      if (newTimer <= 0) this._mpPoopHitCooldowns.delete(id);
+      else this._mpPoopHitCooldowns.set(id, newTimer);
+    }
   }
 
   /** Ability activation, cycling, update, coin multiplier, and ability-poop collisions. */
@@ -1639,8 +2112,7 @@ export class Game {
       });
     }
 
-    this.abilityManager.setPlayerLevel(this.progression.level);
-    this.scoreSystem.comboBonus *= this.abilityManager.getCoinMultiplier();
+    this.syncAbilityScoreModifiers();
 
     // Ability poop collisions vs world targets
     const abilityPoops = this.abilityManager.getAllActivePoops();
@@ -1649,6 +2121,11 @@ export class Game {
 
       this.vehicleSystem.checkPoopHits(abilityPoops, (result) => {
         this.scoreSystem.onHitWithValues(Math.round(result.coins * scale), result.heat, 'tourist');
+        this.registerSuccessfulHit({
+          countsAsNPCHit: false,
+          playMomentumAudio: false,
+          showImpactEffects: false,
+        });
         this._tmpVec3A.copy(result.position); this._tmpVec3A.y += 3;
         this.coinPopups.spawn(this._tmpVec3A, Math.round(result.coins * scale), 1.0);
         this.audio.playHit();
@@ -1657,6 +2134,11 @@ export class Game {
 
       this.streetLife.checkPoopHits(abilityPoops, (result) => {
         this.scoreSystem.onHitWithValues(Math.round(result.coins * scale), result.heat, 'tourist');
+        this.registerSuccessfulHit({
+          countsAsNPCHit: false,
+          playMomentumAudio: false,
+          showImpactEffects: false,
+        });
         this._tmpVec3A.copy(result.position); this._tmpVec3A.y += 4;
         this.coinPopups.spawn(this._tmpVec3A, Math.round(result.coins * scale), 1.0);
         this.audio.playHit();
@@ -1664,6 +2146,11 @@ export class Game {
 
       this.airTraffic.checkDroneHits(abilityPoops, (result) => {
         this.scoreSystem.onHitWithValues(Math.round(result.coins * scale), result.heat, 'tourist');
+        this.registerSuccessfulHit({
+          countsAsNPCHit: false,
+          playMomentumAudio: false,
+          showImpactEffects: false,
+        });
         this._tmpVec3A.copy(result.position); this._tmpVec3A.y += 2;
         this.coinPopups.spawn(this._tmpVec3A, Math.round(result.coins * scale), 1.0);
         this.audio.playHit();
@@ -1685,6 +2172,7 @@ export class Game {
             this.poopManager.spawnSplatDecal(impactPos);
             this.npcManager.alertNearby(impactPos);
             this.scoreSystem.onHitWithValues(Math.round(hitResult.coins * scale), hitResult.heat, npc.npcType);
+            this.registerSuccessfulHit({ playMomentumAudio: false });
             this.coinPopups.spawn(hitPos, this.scoreSystem.lastHitPoints, this.scoreSystem.lastHitMultiplier);
             this.audio.playHit();
             this.abilityManager.addCharge(ABILITY_CHARGE.PER_NPC_HIT * 0.5);
@@ -1751,6 +2239,30 @@ export class Game {
     this.hud.updateMissionCompleted(
       this.missionSystem.missionCompletedText, this.missionSystem.missionCompletedOpacity,
     );
+
+    // Nearby players indicator (update every 15 frames to reduce overhead)
+    if (this.multiplayer && this.multiplayer.isConnected() && this.frameCount % 15 === 0) {
+      const playerPos = this.bird.controller.position;
+      const nearby = this.multiplayer.getRemotePlayers()
+        .filter(rp => rp.getLOD() !== 'hidden')
+        .map(rp => {
+          const rpPos = rp.getPosition();
+          const dx = rpPos.x - playerPos.x;
+          const dz = rpPos.z - playerPos.z;
+          return {
+            username: rp.username,
+            distance: Math.sqrt(dx * dx + dz * dz),
+            toasty: rp.isToasty(),
+            heat: rp.getHeat(),
+            emote: rp.getActiveEmoteLabel(),
+          };
+        })
+        .filter(p => p.distance < 300)
+        .sort((a, b) => a.distance - b.distance);
+      this.hud.updateNearbyPlayers(nearby);
+    } else if (!this.multiplayer || !this.multiplayer.isConnected()) {
+      this.hud.updateNearbyPlayers([]);
+    }
   }
 
   private updateCulling(): void {
@@ -1944,7 +2456,7 @@ export class Game {
     this.scene.traverse((object) => {
       // Check any object that has a geometry property (Mesh, Line, Points, etc.)
       const obj = object as any;
-      if ('geometry' in obj && obj.isMesh || obj.isLine || obj.isLineSegments || obj.isPoints) {
+      if ('geometry' in obj && (obj.isMesh || obj.isLine || obj.isLineSegments || obj.isPoints)) {
         if (!obj.geometry) {
           console.warn('⚠️ Found object without geometry:', object.type, object.name || 'unnamed');
           toRemove.push(object);
@@ -2145,6 +2657,7 @@ export class Game {
 
   private applySettings(s: SettingsMenu): void {
     this.input.sensitivity = s.sensitivity;
+    this.input.touchSensitivity = s.sensitivity;
     this.input.invertY = s.invertY;
     this.audio.setMasterVolume(s.masterVolume);
     this.audio.setSFXVolume(s.sfxVolume);
@@ -2315,16 +2828,20 @@ export class Game {
     };
 
     // Hit-based achievements
-    if (stats.totalNPCHits >= 1) check('first_hit', 'First Strike');
-    if (stats.totalTouristsHit >= 100) check('tourist_hunter', 'Tourist Trap');
-    if (stats.totalChefsHit >= 50) check('chef_menace', "Chef's Nightmare");
+    if (stats.totalNPCHits >= 1) check('first_hit', 'First Little Plop');
+    if (stats.totalTouristsHit >= 100) check('tourist_hunter', 'Familiar Face');
+    if (stats.totalChefsHit >= 50) check('chef_menace', 'Kitchen Regular');
 
     // Streak achievements
-    if (this.scoreSystem.streak >= 10) check('streak_10', 'Combo Master');
+    if (this.scoreSystem.streak >= 10) check('streak_10', 'Smooth Sailing');
+
+    // Heat achievements
+    if (stats.highestHeat >= 10) check('heat_10', 'Warm Breeze');
+    if (stats.highestHeat >= 20) check('heat_20', 'Golden Glow');
 
     // Coin achievements
-    if (stats.lifetimeCoinsEarned >= 1000) check('bank_1000', 'Banker');
-    if (stats.lifetimeCoinsEarned >= 10000) check('bank_10000', 'Tycoon');
+    if (stats.lifetimeCoinsEarned >= 1000) check('bank_1000', 'Nest Egg');
+    if (stats.lifetimeCoinsEarned >= 10000) check('bank_10000', 'Sky Savings');
 
     // Distance achievements
     if (stats.totalDistanceFlown >= 10000) check('distance_10km', 'Wanderer');
@@ -2333,6 +2850,24 @@ export class Game {
     // Level achievements
     if (this.progression.level >= 10) check('level_10', 'Experienced');
     if (this.progression.level >= 25) check('level_25', 'Master Bird');
+
+    // Exploration achievements
+    if (stats.totalDistrictsDiscovered >= 5) check('districts_5', 'Neighborhood Hopper');
+    if (stats.totalDistrictsDiscovered >= this.city.districts.length) check('districts_all', 'City Songbird');
+
+    // Zoo achievements
+    if (stats.totalZooHits >= 1) check('zoo_first', 'Zoo Day');
+    if (stats.totalZooHits >= 20) check('zoo_20', 'Safari Stirrer');
+  }
+
+  /** Track unique zoo animal types hit for "Full Safari" achievement. */
+  private checkZooAchievements(animalType: string): void {
+    this.zooTypesHit.add(animalType);
+    if (this.zooTypesHit.size >= 4) {
+      this.achievementsPanel.checkAndUnlock('zoo_all_types').then(unlocked => {
+        if (unlocked) this.sharePrompt.prompt({ type: 'achievement', name: 'Full Safari' });
+      });
+    }
   }
 
   /** Save current game state to localStorage via main.ts */

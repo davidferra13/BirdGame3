@@ -220,12 +220,7 @@ export class PvPManager {
 
   /** Player opts in to the current round (during lobby phase). */
   joinMode(modeId: string): void {
-    // Multiplayer path: server-authoritative PvP sessions.
-    if (this.deps.multiplayer?.isConnected()) {
-      this.deps.multiplayer.sendPvPJoin(modeId);
-      return;
-    }
-
+    // Always run PvP locally so rounds start immediately.
     // Results phase still shows events in the hub; normalize back to idle first
     // so clicking PLAY always starts the selected mode.
     if (this.phase === 'results') {
@@ -244,14 +239,6 @@ export class PvPManager {
 
   /** Player leaves the current round. */
   leaveMode(): void {
-    if (this.deps.multiplayer?.isConnected()) {
-      this.deps.multiplayer.sendPvPLeave();
-      if (this.serverAuthoritative) {
-        this.cleanup();
-      }
-      return;
-    }
-
     if (!this.activeMode) return;
 
     const localPlayer = this.players.find(p => p.id === this.localPlayerId);
@@ -443,6 +430,12 @@ export class PvPManager {
     this.eventBus.emit('tag-transfer', { shooterId, targetId });
   }
 
+  /** Notify of poop hitting a platform (for Statue Sprint). */
+  onPlatformHit(playerId: string, platformIndex: number, hitPosition?: THREE.Vector3): void {
+    if (this.phase !== 'active' || !this.activeMode) return;
+    this.eventBus.emit('platform-hit', { playerId, platformIndex, hitPosition });
+  }
+
   /** Notify of poop hitting the statue (for Poop Cover). */
   onPoopHitStatue(playerId: string, accuracy: number, hitPosition?: THREE.Vector3): void {
     if (this.phase !== 'active' || !this.activeMode) return;
@@ -590,7 +583,6 @@ export class PvPManager {
         this.applyRoot(p.id, PVP.COMBAT_MINE_ROOT_S);
         this.applySlow(p.id, PVP.COMBAT_MINE_ROOT_S + PVP.COMBAT_MINE_SLOW_S);
         triggered = true;
-        break;
       }
       if (triggered) {
         this.mines.splice(i, 1);
@@ -750,6 +742,7 @@ export class PvPManager {
         if (type === 'poop-hit-player') this.onPoopHitPlayer(data.shooterId, data.targetId);
         if (type === 'checkpoint') this.onCheckpointReached(data.playerId, data.checkpointIndex);
         if (type === 'statue-hit') this.onPoopHitStatue(data.playerId, data.accuracy, data.hitPosition);
+        if (type === 'platform-hit') this.onPlatformHit(data.playerId, data.platformIndex, data.hitPosition);
       });
       // Set initial position near city center
       player.position.set(

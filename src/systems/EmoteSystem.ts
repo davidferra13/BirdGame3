@@ -2,12 +2,45 @@ import * as THREE from 'three';
 
 export type EmoteType = 'squawk' | 'flap' | 'spin' | 'salute';
 
-const EMOTE_LABELS: Record<EmoteType, string> = {
+export const EMOTE_LABELS: Record<EmoteType, string> = {
   squawk: 'SQUAWK!',
   flap: '*flap flap*',
   spin: '*victory spin*',
   salute: 'o7',
 };
+
+const EMOTE_CHAT_LINES: Record<EmoteType, string> = {
+  squawk: "lets out a bright squawk",
+  flap: 'does a happy flap',
+  spin: 'twirls through the breeze',
+  salute: 'gives a tidy wing salute',
+};
+
+export function getEmoteLabel(type: EmoteType): string {
+  return EMOTE_LABELS[type];
+}
+
+export function getEmoteChatLine(type: EmoteType): string {
+  return EMOTE_CHAT_LINES[type];
+}
+
+export function getEmoteFromCommand(command: string): EmoteType | null {
+  switch (command) {
+    case '/chirp':
+    case '/squawk':
+      return 'squawk';
+    case '/flap':
+      return 'flap';
+    case '/spin':
+    case '/dance':
+      return 'spin';
+    case '/salute':
+    case '/wave':
+      return 'salute';
+    default:
+      return null;
+  }
+}
 
 export class EmoteSystem {
   private container: HTMLElement;

@@ -1,9 +1,9 @@
 export const FLIGHT = {
   // Speed
-  BASE_SPEED: 30,
+  BASE_SPEED: 32,
   MIN_SPEED: 0,
-  MAX_SPEED: 50,
-  DIVE_SPEED: 80,
+  MAX_SPEED: 58,
+  DIVE_SPEED: 88,
   DIVE_ACCELERATION: 40,
   SPEED_RECOVERY_RATE: 10,
   BRAKE_RATE: 25,
@@ -53,8 +53,8 @@ export const FLIGHT = {
   DIVE_MOMENTUM_DURATION: 1.8, // Boost lasts 1.8 seconds after pullout
 
   // Dive Bomb (enhanced dive)
-  DIVE_BOMB_SPEED: 120,  // Maximum speed when dive bombing
-  DIVE_BOMB_ACCELERATION: 60,  // Faster acceleration
+  DIVE_BOMB_SPEED: 108,  // Maximum speed when dive bombing
+  DIVE_BOMB_ACCELERATION: 55,  // Faster acceleration
   DIVE_BOMB_PITCH: -1.4,  // Steeper angle
   DIVE_BOMB_FOV_INCREASE: 10,  // Extra FOV during dive bomb
 
@@ -63,6 +63,32 @@ export const FLIGHT = {
   BANK_SPEED: 5.5,
   BANK_SINK_RATE: 1.5,
 
+  // Soaring / glide flow
+  FLOW_SPEED_START: 34,
+  FLOW_SPEED_FULL: 56,
+  FLOW_BANK_MIN: 0.16,
+  FLOW_PITCH_SWEET_MIN: -0.45,
+  FLOW_PITCH_SWEET_MAX: 0.18,
+  FLOW_BUILD_RATE: 1.1,
+  FLOW_DECAY_RATE: 1.8,
+  FLOW_SPEED_BONUS: 10.0,
+  FLOW_TURN_BONUS: 0.28,
+  FLOW_DESCENT_REDUCTION: 0.72,
+  FLOW_BANK_SINK_REDUCTION: 0.75,
+  FLOW_LIFT_BONUS: 0.45,
+  FLOW_SKIM_ALTITUDE: 16.0,
+  FLOW_SKIM_LIFT_BONUS: 0.9,
+
+  // Dive pullout assist
+  PULL_OUT_MIN_DIVE_GAIN: 12.0,
+  PULL_OUT_TRIGGER_PITCH: -0.1,
+  PULL_OUT_ACTIVATION_WINDOW: 0.9,
+  PULL_OUT_DURATION: 1.35,
+  PULL_OUT_SPEED_BONUS: 8.0,
+  PULL_OUT_LIFT_BONUS: 2.2,
+  PULL_OUT_TURN_BONUS: 0.45,
+  PULL_OUT_DESCENT_REDUCTION: 0.85,
+
   // Altitude
   MAX_ALTITUDE: 200,
   MIN_ALTITUDE: 2,
@@ -70,14 +96,77 @@ export const FLIGHT = {
   CEILING_PUSH_STRENGTH: 20,
 
   // Boost
-  BOOST_MULTIPLIER: 100.0, // Maximum cartoon speed
-  BOOST_COOLDOWN: 1.5,
-  BOOST_DURATION: 1.7, // longer extreme boost
+  BOOST_MULTIPLIER: 2.2,
+  BOOST_COOLDOWN: 1.2,
+  BOOST_DURATION: 0.95,
 
   // Ground mode
   GROUND_WALK_SPEED: 5,
   GROUND_WALK_BACKWARD_SPEED: 3,
   GROUND_TAKEOFF_SPEED: 12,
+
+  // Flip mechanics
+  FLIP_DURATION: 0.8,
+  AILERON_ROLL_DURATION: 1.2,
+  CORKSCREW_DURATION: 1.0,
+  INVERTED_DURATION: 0.6,
+  FLIP_COOLDOWN: 0.2,
+  FLIP_COMBO_WINDOW: 2.0,
+  FLIP_DOUBLE_MULT: 1.6,
+  CORKSCREW_PITCH_MULT: 0.3,
+  INVERTED_PITCH_MULT: 0.5,
+
+  // U-turn
+  U_TURN_DURATION: 0.35,
+  U_TURN_COOLDOWN: 0.5,
+
+  // Turn physics
+  TURN_SPEED_MIN_MULT: 1.2,
+  TURN_SPEED_MAX_MULT: 2.5,
+  TURN_ACCEL: 12.0,
+
+  // Pitch rates (moveToward speed per state)
+  PITCH_RATE_DIVEBOMB: 5.0,
+  PITCH_RATE_DIVE: 4.0,
+  PITCH_RATE_ASCEND: 3.0,
+  PITCH_RATE_BRAKE: 2.0,
+  PITCH_RATE_GENTLE: 1.5,
+  PITCH_RATE_FORWARD: 2.2,
+  PITCH_RATE_AUTODESCENT: 0.5,
+
+  // Speed ease rates
+  EASE_DIVEBOMB: 3.5,
+  EASE_DIVE: 2.5,
+  EASE_BRAKE: 3.5,
+  EASE_ACCEL: 1.8,
+  EASE_DECEL: 3.0,
+
+  // Pitch→speed mapping remaps
+  PITCH_REMAP_MIN_PITCH: -0.8,
+  PITCH_REMAP_MAX_PITCH: 0.6,
+  PITCH_REMAP_MIN_SPEED: -8.0,
+  PITCH_REMAP_MAX_SPEED: 10.0,
+  FORWARD_SPEED_BONUS: 12.0,
+
+  // Ground effect lift
+  GROUND_EFFECT_ALTITUDE: 8.0,
+  GROUND_EFFECT_MIN_SPEED: 20.0,
+  GROUND_EFFECT_LIFT_BONUS: 6.0,
+
+  // Scroll wheel altitude
+  SCROLL_IMPULSE_DIVISOR: 50.0,
+  SCROLL_IMPULSE_SCALE: 400.0,
+  SCROLL_VELOCITY_MAX: 600.0,
+  SCROLL_DECAY: 3.0,
+
+  // Collision
+  BIRD_RADIUS: 1.5,
+  SUBSTEP_SIZE: 1.0,
+  COLLISION_SLIDE_FACTOR: 0.7,
+  DEPENETRATION_SPEED_FACTOR: 0.5,
+  DEPENETRATION_MARGIN: 0.1,
+  ROOFTOP_MARGIN: 0.3,
+  SLIDE_SPEED_FACTOR: 0.8,
 };
 
 export const CAMERA = {
@@ -103,11 +192,11 @@ export const CAMERA = {
   DROP_ASSIST_DURATION: 0.3,
 
   // Bombing run mode (S key brake → aim camera)
-  BOMBING_OFFSET_BEHIND: 5,
-  BOMBING_OFFSET_ABOVE: 16,
-  BOMBING_LOOK_DOWN: -18,
-  BOMBING_LOOKAHEAD_SCALE: 0.3,
-  BOMBING_LERP_SPEED: 2.0,
+  BOMBING_OFFSET_BEHIND: 7,
+  BOMBING_OFFSET_ABOVE: 9,
+  BOMBING_LOOK_DOWN: -8,
+  BOMBING_LOOKAHEAD_SCALE: 0.4,
+  BOMBING_LERP_SPEED: 4.0,
 
   // Vertigo shot (dolly zoom on boost)
   BOOST_FOV_PUNCH: 108,           // FOV spikes to this on boost start
@@ -124,6 +213,45 @@ export const CAMERA = {
   DRIVING_FOV_MIN: 65,
   DRIVING_FOV_MAX: 72,
   DRIVING_LOOKAHEAD: 8,
+
+  // Camera setup
+  CAMERA_FAR_PLANE: 1400,
+
+  // FOV transitions
+  FOV_LERP_SPEED: 2.5,
+
+  // Free-look
+  FREE_LOOK_SENSITIVITY: 0.003,
+  FREE_LOOK_MAX_YAW: Math.PI / 4,
+  FREE_LOOK_MAX_PITCH: Math.PI / 6,
+  FREE_LOOK_RETURN_SPEED: 8.0,
+
+  // Orbit
+  ORBIT_SENSITIVITY: 0.005,
+  ORBIT_MAX_PITCH: Math.PI * 0.42,
+  ORBIT_RETURN_SPEED: 5.0,
+
+  // Bombing mode lerp
+  BOMBING_RAMP_UP_SPEED: 4.0,
+  BOMBING_RAMP_DOWN_SPEED: 6.0,
+  OFFSET_LERP_BASE: 5.0,
+  BOMBING_CATCHUP_BASE: 2.5,
+  BOMBING_CATCHUP_SCALE: 10.0,
+
+  // High-flow flight feel
+  SURF_OFFSET_BEHIND: 2.5,
+  SURF_OFFSET_DROP: 0.9,
+  SURF_SIDE_OFFSET: 2.4,
+  SURF_LOOKAHEAD_BONUS: 7.5,
+  SURF_LOOK_SIDE: 2.5,
+  SURF_LERP_BOOST: 1.4,
+  SURF_FOV_BONUS: 6.0,
+
+  // Look target
+  LOOK_TARGET_HEIGHT: 2.0,
+  PITCH_OFFSET_MULTIPLIER: 0.4,
+  PITCH_LOOK_TARGET_MULT: 0.5,
+  GROUND_LOOKAHEAD_ATTEN: 0.3,
 };
 
 export const POOP = {
@@ -220,6 +348,10 @@ export const SCORE = {
   BASE_POINTS: 10,
 
   MAX_MULTIPLIER: 2.5,
+  MAX_HEAT: 50,
+  HEAT_DECAY_PER_SECOND: 1.0,
+  HEAT_REWARD_MULTIPLIER_AT_MAX: 0.75,
+  WANTED_THRESHOLD: 5,  // Heat level that triggers "wanted" status
 
   GROUNDING_LOSS_FRACTION: 0.4,
   GROUNDING_ALTITUDE: 3,
@@ -405,10 +537,6 @@ export const AIR_TRAFFIC = {
   BLIMP_SPEED: 8,
   BLIMP_ALTITUDE: 120,
 
-  BIRD_FLOCK_COUNT: 2,  // Reduced from 4 for performance
-  FLOCK_SIZE: 5,  // Reduced from 8 for performance
-  FLOCK_SPEED: 12,
-
   PLANE_COUNT: 2,  // Reduced from 3 for performance
   PLANE_SPEED: 40,
   PLANE_ALTITUDE_RANGE: [60, 110] as [number, number],
@@ -482,18 +610,6 @@ export const DRIVING = {
 // ============================================================================
 
 export const STREET_LIFE = {
-  // Pigeons
-  PIGEON_FLOCK_COUNT: 8,
-  PIGEONS_PER_FLOCK: 6,
-  PIGEON_SCATTER_RADIUS: 20,
-  PIGEON_SCATTER_ALTITUDE: 15,
-  PIGEON_SCATTER_SPEED: 15,
-  PIGEON_SCATTER_DURATION: 2,
-  PIGEON_REGROUP_TIME: 15,
-  PIGEON_HIT_RADIUS: 3,       // Hit radius for the whole flock
-  PIGEON_FLOCK_COINS: 10,     // Coins for splatting a resting flock
-  PIGEON_FLOCK_HEAT: 0,
-
   // Cats
   CAT_COUNT: 6,
   CAT_SPEED: 2,
@@ -514,12 +630,62 @@ export const STREET_LIFE = {
   DOG_COINS: 10,
   DOG_HEAT: 0,
 
+  // Rats (rare easter egg)
+  RAT_COUNT: 3,
+  RAT_SPEED: 4,
+  RAT_FLEE_SPEED: 8,
+  RAT_FLEE_RADIUS: 12,
+  RAT_HIT_RADIUS: 0.8,
+  RAT_COINS: 25,              // Rare = more rewarding
+  RAT_HEAT: 0,
+
   // Food Carts
   FOOD_CART_COUNT: 8,
   FOOD_CART_COINS: 35,
   FOOD_CART_HEAT: 1,
   FOOD_CART_HIT_RADIUS: 2.5,
   FOOD_CART_HIT_COOLDOWN: 8,
+};
+
+// ============================================================================
+// Zoo
+// ============================================================================
+
+export const ZOO = {
+  BOUNDS: { minX: 350, maxX: 500, minZ: 300, maxZ: 450 },
+  ELEPHANT_SPEED: 2,
+  ELEPHANT_SPOOKED_SPEED: 12,
+  ELEPHANT_SPOOK_RADIUS: 15,
+  ELEPHANT_SPOOK_DURATION: 5,
+
+  // Giraffe
+  GIRAFFE_SPEED: 1.5,
+
+  // Penguins
+  PENGUIN_COUNT: 4,
+  PENGUIN_SPEED: 2.5,
+  PENGUIN_WADDLE_RATE: 8,
+
+  // Monkey
+  MONKEY_SPEED: 3,
+  MONKEY_JUMP_INTERVAL: 4,
+
+  // Poop interactions
+  HIT_RADIUS: 3,
+  HIT_COOLDOWN: 5,
+  ELEPHANT_COINS: 50,
+  GIRAFFE_COINS: 40,
+  PENGUIN_COINS: 30,
+  MONKEY_COINS: 35,
+  HIT_HEAT: 0,
+
+  // Enclosure sub-areas (offsets from bounds center)
+  ENCLOSURES: {
+    elephant: { offsetX: -30, offsetZ: -25, size: 30 },
+    giraffe:  { offsetX:  30, offsetZ: -25, size: 25 },
+    penguin:  { offsetX: -30, offsetZ:  30, size: 20 },
+    monkey:   { offsetX:  30, offsetZ:  30, size: 22 },
+  },
 };
 
 // ============================================================================
@@ -632,6 +798,17 @@ export const PVP = {
   COVER_WINNER_BONUS: 80,
   COVER_PARTICIPATION_REWARD: 15,
   COVER_STATUE_BEACON_HEIGHT: 60,
+
+  // --- Statue Sprint ---
+  SPRINT_ROUND_DURATION: 120,  // 2 minutes (ends early on win)
+  SPRINT_MIN_PLAYERS: 2,
+  SPRINT_MAX_PLAYERS: 8,
+  SPRINT_PLATFORM_RADIUS: 10,  // 3D hit detection radius for flat platforms
+  SPRINT_COVERAGE_PER_HIT: 10, // % coverage added per poop hit
+  SPRINT_WINNER_BONUS: 150,    // Coins for first to cover their platform
+  SPRINT_SPEED_BONUS: 100,     // Extra coins for winning under 60 seconds
+  SPRINT_PARTICIPATION_REWARD: 20,
+  SPRINT_BEACON_HEIGHT: 65,    // Height of beacon pillar above platform
 
   // --- Combat mechanics (cross-mode) ---
   COMBAT_BURST_RANGE: 26,       // Radius for Burst shockwave
@@ -803,4 +980,3 @@ export const MVM = {
   TEAM_A_COLOR: 0x4488ff,
   TEAM_B_COLOR: 0xff4444,
 };
-

@@ -53,12 +53,13 @@ export class SpeedEffects {
     this.container.appendChild(this.vignetteEl);
   }
 
-  update(dt: number, speed: number, maxSpeed: number, isDiving: boolean, isBoosting: boolean): void {
+  update(dt: number, speed: number, maxSpeed: number, isDiving: boolean, isBoosting: boolean, airflow: number = 0): void {
     // --- Speed lines ---
     // Calculate target opacity: ramps up with speed, stronger during dive/boost
     let speedFactor = Math.max(0, (speed - 30) / (maxSpeed - 30)); // 0 at base speed, 1 at max
     if (isDiving) speedFactor = Math.min(speedFactor * 1.5, 1);
     if (isBoosting) speedFactor = Math.min(speedFactor + 0.3, 1);
+    if (airflow > 0) speedFactor = Math.min(speedFactor + airflow * 0.2, 1);
 
     const targetOpacity = speedFactor * 0.7;
     // Smooth transition
@@ -66,8 +67,9 @@ export class SpeedEffects {
     this.speedLinesEl.style.opacity = this.currentOpacity.toFixed(3);
 
     // Scale the gradient to give a "tunnel vision" effect at high speeds
-    const scale = 1 + speedFactor * 0.15;
+    const scale = 1 + speedFactor * 0.15 + airflow * 0.04;
     this.speedLinesEl.style.transform = `scale(${scale.toFixed(3)})`;
+    this.speedLinesEl.style.filter = `blur(${(airflow * 1.2).toFixed(2)}px) saturate(${(1 + airflow * 0.4).toFixed(2)})`;
 
     // --- Screen flash ---
     if (this.flashTimer > 0) {

@@ -48,7 +48,7 @@ export class KeyboardHelper {
       { key: 'L-Shift', label: 'Soft Down' },
       { key: 'K', label: 'Fast Down' },
       { key: 'Alt', label: 'Dive' },
-      { key: 'Click', label: 'Poop' },
+      { key: 'Click', label: 'Plop' },
       { key: 'R-Click', label: 'Grab NPC' },
       { key: 'T', label: 'Boost' },
       { key: 'F1', label: 'More' },
@@ -104,8 +104,8 @@ export class KeyboardHelper {
     ];
 
     const actionShortcuts = [
-      { key: 'Click', action: 'Drop Poop' },
-      { key: 'R-Click', action: 'Grab / Throw NPC' },
+      { key: 'Click', action: 'Drop a little plop' },
+      { key: 'R-Click', action: 'Grab / Toss NPC' },
       { key: 'Q/E', action: 'Flip Fwd / Back' },
       { key: 'R/F', action: 'Barrel Roll L / R' },
       { key: '1-4', action: 'Emotes' },

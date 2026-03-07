@@ -157,6 +157,17 @@ export class PvPHUD {
         this.standingText.style.color = '#aaccff';
         break;
       }
+      case 'statue-sprint': {
+        const cov = data?.localCoverage ?? 0;
+        const rank = data?.localRank ?? '?';
+        const done = data?.roundComplete;
+        this.statusText.textContent = `STATUE SPRINT${combatHint}`;
+        this.standingText.textContent = done
+          ? `\uD83C\uDFC6 ${data?.winnerName ?? 'Winner'} covered it!`
+          : rooted ? 'Rooted!' : `${cov}% covered (${rank})${slowed ? ' \u00B7 Slowed' : ''}`;
+        this.standingText.style.color = cov >= 75 ? '#ffcc44' : '#aaccff';
+        break;
+      }
     }
   }
 

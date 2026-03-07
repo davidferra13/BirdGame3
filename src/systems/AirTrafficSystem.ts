@@ -5,15 +5,12 @@ import type { Poop } from '../entities/Poop';
 
 // Reusable scratch vectors — allocated once, reused every frame
 const _dir = new THREE.Vector3();
-const _toCenter = new THREE.Vector3();
-const _vel = new THREE.Vector3();
 
 interface Helicopter {
   mesh: THREE.Group;
   position: THREE.Vector3;
   velocity: THREE.Vector3;
   targetPosition: THREE.Vector3;
-  isChasing: boolean;
   rotorBlade: THREE.Mesh;
 }
 
@@ -23,13 +20,6 @@ interface Blimp {
   angle: number;
   radius: number;
   speed: number;
-}
-
-interface BirdFlock {
-  birds: THREE.Mesh[];
-  center: THREE.Vector3;
-  velocity: THREE.Vector3;
-  targetPosition: THREE.Vector3;
 }
 
 interface Plane {
@@ -42,14 +32,6 @@ interface Plane {
   centerX: number;
   centerZ: number;
   bankPhase: number;    // For gentle banking in turns
-}
-
-interface HotAirBalloon {
-  mesh: THREE.Group;
-  baseAltitude: number;
-  driftAngle: number;
-  driftSpeed: number;
-  bobPhase: number;
 }
 
 interface Drone {
@@ -70,21 +52,18 @@ export interface DroneHitResult {
 
 /**
  * Air Traffic System
- * Manages helicopters, blimps, planes, hot air balloons, and NPC bird flocks
+ * Manages helicopters, blimps, planes, hot air balloons, and drones
  */
 export class AirTrafficSystem {
   private helicopters: Helicopter[] = [];
   private blimps: Blimp[] = [];
-  private birdFlocks: BirdFlock[] = [];
   private planes: Plane[] = [];
-  private balloons: HotAirBalloon[] = [];
   private drones: Drone[] = [];
   readonly group = new THREE.Group();
 
   constructor(cityBounds: { minX: number; maxX: number; minZ: number; maxZ: number }) {
     this.createHelicopters(cityBounds);
     this.createBlimps();
-    this.createBirdFlocks(cityBounds);
     this.createPlanes(cityBounds);
     // Hot air balloons removed for performance
     this.createDrones(cityBounds);
@@ -146,7 +125,6 @@ export class AirTrafficSystem {
           (Math.random() - 0.5) * 2
         ).normalize().multiplyScalar(AIR_TRAFFIC.HELICOPTER_SPEED),
         targetPosition: new THREE.Vector3(x, y, z),
-        isChasing: false,
         rotorBlade,
       });
     }
@@ -189,62 +167,6 @@ export class AirTrafficSystem {
         angle,
         radius,
         speed: AIR_TRAFFIC.BLIMP_SPEED / radius,
-      });
-    }
-  }
-
-  private createBirdFlocks(bounds: { minX: number; maxX: number; minZ: number; maxZ: number }): void {
-    for (let i = 0; i < AIR_TRAFFIC.BIRD_FLOCK_COUNT; i++) {
-      const birds: THREE.Mesh[] = [];
-      const center = new THREE.Vector3(
-        bounds.minX + Math.random() * (bounds.maxX - bounds.minX),
-        60 + Math.random() * 40,
-        bounds.minZ + Math.random() * (bounds.maxZ - bounds.minZ)
-      );
-
-      for (let j = 0; j < AIR_TRAFFIC.FLOCK_SIZE; j++) {
-        const birdGroup = new THREE.Group();
-
-        const body = new THREE.Mesh(
-          new THREE.SphereGeometry(0.3, 6, 4),
-          createToonMaterial(0x666666)
-        );
-        birdGroup.add(body);
-
-        const leftWing = new THREE.Mesh(
-          new THREE.BoxGeometry(1.5, 0.1, 0.5),
-          createToonMaterial(0x555555)
-        );
-        leftWing.position.set(-0.75, 0, 0);
-        birdGroup.add(leftWing);
-
-        const rightWing = new THREE.Mesh(
-          new THREE.BoxGeometry(1.5, 0.1, 0.5),
-          createToonMaterial(0x555555)
-        );
-        rightWing.position.set(0.75, 0, 0);
-        birdGroup.add(rightWing);
-
-        const offset = new THREE.Vector3(
-          (Math.random() - 0.5) * 10,
-          (Math.random() - 0.5) * 3,
-          (Math.random() - 0.5) * 10
-        );
-        birdGroup.position.copy(center).add(offset);
-
-        this.group.add(birdGroup);
-        birds.push(birdGroup as any);
-      }
-
-      this.birdFlocks.push({
-        birds,
-        center: center.clone(),
-        velocity: new THREE.Vector3(
-          (Math.random() - 0.5) * 2,
-          0,
-          (Math.random() - 0.5) * 2
-        ).normalize().multiplyScalar(AIR_TRAFFIC.FLOCK_SPEED),
-        targetPosition: center.clone(),
       });
     }
   }
@@ -334,70 +256,6 @@ export class AirTrafficSystem {
     }
   }
 
-  private createHotAirBalloons(bounds: { minX: number; maxX: number; minZ: number; maxZ: number }): void {
-    const balloonColors = [0xff4444, 0x44bb44, 0xffaa00, 0x8844cc];
-
-    for (let i = 0; i < 2; i++) {
-      const balloon = new THREE.Group();
-      const color = balloonColors[i % balloonColors.length];
-      const stripeColor = balloonColors[(i + 2) % balloonColors.length];
-
-      // Envelope (the big balloon part)
-      const envelope = new THREE.Mesh(
-        new THREE.SphereGeometry(4, 12, 10),
-        createToonMaterial(color)
-      );
-      envelope.scale.set(1, 1.3, 1);
-      envelope.position.y = 6;
-      balloon.add(envelope);
-
-      // Stripe ring around middle for visual pop
-      const stripe = new THREE.Mesh(
-        new THREE.TorusGeometry(3.8, 0.4, 6, 16),
-        createToonMaterial(stripeColor)
-      );
-      stripe.position.y = 6;
-      stripe.rotation.x = Math.PI / 2;
-      balloon.add(stripe);
-
-      // Basket
-      const basket = new THREE.Mesh(
-        new THREE.BoxGeometry(1.8, 1.2, 1.8),
-        createToonMaterial(0x8B4513)
-      );
-      basket.position.y = -0.5;
-      balloon.add(basket);
-
-      // Ropes connecting basket to balloon (4 lines)
-      const ropeMat = new THREE.LineBasicMaterial({ color: 0x666666 });
-      const ropeOffsets = [[-0.7, -0.7], [0.7, -0.7], [-0.7, 0.7], [0.7, 0.7]];
-      for (const [rx, rz] of ropeOffsets) {
-        const ropeGeo = new THREE.BufferGeometry().setFromPoints([
-          new THREE.Vector3(rx, 0.2, rz),
-          new THREE.Vector3(rx * 1.5, 2.0, rz * 1.5),
-        ]);
-        const rope = new THREE.Line(ropeGeo, ropeMat);
-        balloon.add(rope);
-      }
-
-      // Position
-      const x = (Math.random() - 0.5) * (bounds.maxX - bounds.minX) * 0.6;
-      const z = (Math.random() - 0.5) * (bounds.maxZ - bounds.minZ) * 0.6;
-      const alt = 90 + Math.random() * 50;
-      balloon.position.set(x, alt, z);
-
-      this.group.add(balloon);
-
-      this.balloons.push({
-        mesh: balloon,
-        baseAltitude: alt,
-        driftAngle: Math.random() * Math.PI * 2,
-        driftSpeed: 0.3 + Math.random() * 0.4,
-        bobPhase: Math.random() * Math.PI * 2,
-      });
-    }
-  }
-
   private createDrones(bounds: { minX: number; maxX: number; minZ: number; maxZ: number }): void {
     for (let i = 0; i < DRONES.COUNT; i++) {
       const drone = new THREE.Group();
@@ -474,26 +332,16 @@ export class AirTrafficSystem {
     }
   }
 
-  update(dt: number, playerPos: THREE.Vector3, isPlayerWanted: boolean): void {
-    this.updateHelicopters(dt, playerPos, isPlayerWanted);
+  update(dt: number, _playerPos: THREE.Vector3, _isPlayerWanted?: boolean): void {
+    this.updateHelicopters(dt);
     this.updateBlimps(dt);
-    this.updateBirdFlocks(dt);
     this.updatePlanes(dt);
-    // updateBalloons removed — hot air balloons stripped for performance
     this.updateDrones(dt);
   }
 
-  private updateHelicopters(dt: number, playerPos: THREE.Vector3, isPlayerWanted: boolean): void {
+  private updateHelicopters(dt: number): void {
     for (const heli of this.helicopters) {
       heli.rotorBlade.rotation.y += dt * 30;
-
-      if (isPlayerWanted && Math.random() < 0.01) {
-        heli.isChasing = true;
-        heli.targetPosition.copy(playerPos);
-        heli.targetPosition.y = Math.max(heli.targetPosition.y + 15, AIR_TRAFFIC.HELICOPTER_ALTITUDE_RANGE[0]);
-      } else if (!isPlayerWanted && heli.isChasing) {
-        heli.isChasing = false;
-      }
 
       _dir.subVectors(heli.targetPosition, heli.mesh.position);
       const distance = _dir.length();
@@ -501,7 +349,7 @@ export class AirTrafficSystem {
       if (distance > 5) {
         _dir.normalize().multiplyScalar(AIR_TRAFFIC.HELICOPTER_SPEED);
         heli.velocity.lerp(_dir, dt);
-      } else if (!heli.isChasing) {
+      } else {
         heli.targetPosition.set(
           (Math.random() - 0.5) * 1400,
           AIR_TRAFFIC.HELICOPTER_ALTITUDE_RANGE[0] + Math.random() *
@@ -515,7 +363,6 @@ export class AirTrafficSystem {
       if (heli.velocity.length() > 0.1) {
         const angle = Math.atan2(heli.velocity.x, heli.velocity.z);
         heli.mesh.rotation.y = angle;
-        // Slight tilt in direction of movement
         heli.mesh.rotation.z = Math.sin(angle - heli.mesh.rotation.y) * 0.1;
       }
     }
@@ -530,50 +377,6 @@ export class AirTrafficSystem {
 
       blimp.mesh.position.set(x, AIR_TRAFFIC.BLIMP_ALTITUDE, z);
       blimp.mesh.rotation.y = blimp.angle + Math.PI / 2;
-    }
-  }
-
-  private updateBirdFlocks(dt: number): void {
-    for (const flock of this.birdFlocks) {
-      _dir.subVectors(flock.targetPosition, flock.center);
-      const distance = _dir.length();
-
-      if (distance < 20) {
-        flock.targetPosition.set(
-          (Math.random() - 0.5) * 1200,
-          60 + Math.random() * 40,
-          (Math.random() - 0.5) * 1200
-        );
-      }
-
-      _dir.normalize().multiplyScalar(AIR_TRAFFIC.FLOCK_SPEED);
-      flock.velocity.lerp(_dir, dt * 0.5);
-      flock.center.addScaledVector(flock.velocity, dt);
-
-      for (let i = 0; i < flock.birds.length; i++) {
-        const bird = flock.birds[i];
-
-        _toCenter.subVectors(flock.center, bird.position).multiplyScalar(0.1);
-        bird.position.addScaledVector(_toCenter, dt);
-
-        // Random jitter inline (avoid allocating a Vector3)
-        bird.position.x += (Math.random() - 0.5) * 2 * dt;
-        bird.position.y += (Math.random() - 0.5) * 0.5 * dt;
-        bird.position.z += (Math.random() - 0.5) * 2 * dt;
-
-        bird.position.addScaledVector(flock.velocity, dt);
-
-        _vel.subVectors(flock.center, bird.position).add(flock.velocity);
-        if (_vel.length() > 0.1) {
-          bird.rotation.y = Math.atan2(_vel.x, _vel.z);
-        }
-
-        // Flap wings
-        const flapAmount = Math.sin(Date.now() / 100 * 8 + i) * 0.3;
-        const wings = bird.children.slice(1) as THREE.Mesh[];
-        if (wings[0]) wings[0].rotation.z = flapAmount;
-        if (wings[1]) wings[1].rotation.z = -flapAmount;
-      }
     }
   }
 
@@ -601,22 +404,6 @@ export class AirTrafficSystem {
       plane.mesh.rotation.z = -0.15; // Constant gentle bank for circular path
       // Slight pitch variation
       plane.mesh.rotation.x = Math.sin(plane.angle * 2) * 0.05;
-    }
-  }
-
-  private updateBalloons(dt: number): void {
-    for (const balloon of this.balloons) {
-      // Slow drift
-      balloon.driftAngle += balloon.driftSpeed * dt * 0.02;
-      balloon.mesh.position.x += Math.cos(balloon.driftAngle) * balloon.driftSpeed * dt;
-      balloon.mesh.position.z += Math.sin(balloon.driftAngle) * balloon.driftSpeed * dt;
-
-      // Gentle bobbing
-      balloon.bobPhase += dt * 0.5;
-      balloon.mesh.position.y = balloon.baseAltitude + Math.sin(balloon.bobPhase) * 2;
-
-      // Subtle rotation from "wind"
-      balloon.mesh.rotation.y += dt * 0.05;
     }
   }
 

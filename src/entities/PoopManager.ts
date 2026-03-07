@@ -71,10 +71,17 @@ export class PoopManager {
   private rayOrigin = new THREE.Vector3();
   private rayDirection = new THREE.Vector3(0, -1, 0);
   private raycastTargets: THREE.Object3D[] = [];
+  private raycastTargetAge = 0;
+  private static readonly RAYCAST_CACHE_INTERVAL = 0.25; // rebuild target list every 250ms
 
   private impactPoint = new THREE.Vector3();
   private smoothedImpactPoint = new THREE.Vector3();
   private hasSmoothedImpactPoint = false;
+  private staleTimer = 0;
+  private static readonly MAX_STALE_TIME = 2.0;
+
+  /** Estimated seconds until poop impact — exposed for HUD readout */
+  public timeToImpact = 0;
 
   private arcPoints = new Float32Array(PoopManager.ARC_SEGMENTS * 3);
 
@@ -194,6 +201,7 @@ export class PoopManager {
     this.updateSplatDecals(dt);
 
     // CCIP reticle update
+    this.raycastTargetAge += dt;
     this.updateGhostMarker(bird, dt);
   }
 
@@ -357,13 +365,13 @@ export class PoopManager {
     // Smooth bombing blend for visual transitions
     const wantsBombing = ctrl.isBomberMode && !ctrl.isGrounded && !ctrl.isDiving;
     if (wantsBombing) {
-      this.bombingBlend = moveToward(this.bombingBlend, 1, dt * 2.5);
+      this.bombingBlend = moveToward(this.bombingBlend, 1, dt * 12);
     } else {
       this.bombingBlend = moveToward(this.bombingBlend, 0, dt * 3.5);
     }
 
-    // Hide when grounded or too low
-    if (ctrl.isGrounded || ctrl.position.y < 3) {
+    // Hide when grounded or nearly on the ground
+    if (ctrl.isGrounded || ctrl.position.y < 1.5) {
       this.hideCcip();
       return;
     }
@@ -373,21 +381,36 @@ export class PoopManager {
 
     // Altitude baseline under player
     const raycastStartY = ctrl.position.y + PoopManager.RAYCAST_HEIGHT;
+    let ccipValid = true;
     if (!this.findSurfaceY(ctrl.position.x, ctrl.position.z, raycastStartY, bird.mesh, this._tmpPointA)) {
-      this.hideCcip();
-      return;
+      ccipValid = false;
     }
 
     // First pass CCIP solve
-    const first = this.calculateImpactPoint(this._lineStart, this._tmpPointA.y, ctrl, bird.mesh, this._tmpPointA);
-    if (!first) {
+    let refined: CcipSolution | null = null;
+    if (ccipValid) {
+      const first = this.calculateImpactPoint(this._lineStart, this._tmpPointA.y, ctrl, bird.mesh, this._tmpPointA);
+      if (!first) {
+        ccipValid = false;
+      } else {
+        // Refinement pass for uneven terrain/rooftops
+        refined = this.calculateImpactPoint(this._lineStart, first.point.y, ctrl, bird.mesh, this._tmpPointB) ?? first;
+        this.impactPoint.copy(refined.point);
+        this.timeToImpact = refined.timeToImpact;
+        this.staleTimer = 0;
+      }
+    }
+
+    // On failure: keep showing last known position, fading over time
+    if (!ccipValid) {
+      if (this.hasSmoothedImpactPoint) {
+        this.staleTimer += dt;
+        this.showStaleReticle();
+        return;
+      }
       this.hideCcip();
       return;
     }
-
-    // Refinement pass for uneven terrain/rooftops
-    const refined = this.calculateImpactPoint(this._lineStart, first.point.y, ctrl, bird.mesh, this._tmpPointB) ?? first;
-    this.impactPoint.copy(refined.point);
 
     // Anti-jitter smoothing
     const alpha = 1 - Math.exp(-PoopManager.CCIP_SMOOTHING * dt);
@@ -399,26 +422,35 @@ export class PoopManager {
     }
 
     const reticleY = this.smoothedImpactPoint.y + PoopManager.RETICLE_SURFACE_OFFSET;
+
+    // Reticle only visible when bomber mode is engaged (fades in/out with bombingBlend)
+    const b = this.bombingBlend;
+    if (b <= 0.01) {
+      this.ghostMarker.visible = false;
+      this.crosshairDot.visible = false;
+      this.targetingLine.visible = false;
+      return;
+    }
+
     this.ghostMarker.position.set(this.smoothedImpactPoint.x, reticleY, this.smoothedImpactPoint.z);
     this.ghostMarker.visible = true;
 
-    // Bombing mode: scale up, brighter, pulsing
-    const b = this.bombingBlend;
-    const pulseScale = 1 + Math.sin(Date.now() * 0.006) * 0.15 * b;
-    const scale = (1 + b * 1.5) * pulseScale;
+    // Pulsing scale, opacity fully tied to bombingBlend (invisible outside bomber mode)
+    const pulseScale = 1 + Math.sin(Date.now() * 0.006) * 0.12 * b;
+    const scale = (0.8 + b * 0.6) * pulseScale;
     this.ghostMarker.scale.setScalar(scale);
     const markerMat = this.ghostMarker.material as THREE.MeshBasicMaterial;
-    markerMat.opacity = 0.45 + b * 0.3;
+    markerMat.opacity = b * 0.85;
 
     // Crosshair dot follows ghost marker
     this.crosshairDot.position.set(this.smoothedImpactPoint.x, reticleY + 0.01, this.smoothedImpactPoint.z);
     this.crosshairDot.visible = true;
     this.crosshairDot.scale.setScalar(scale);
     const dotMat = this.crosshairDot.material as THREE.MeshBasicMaterial;
-    dotMat.opacity = 0.45 + b * 0.3;
+    dotMat.opacity = b * 0.85;
 
     // Optional parabolic arc (line renderer equivalent)
-    if (b > 0.01 && this.drawArcPath) {
+    if (b > 0.01 && this.drawArcPath && refined) {
       this.updateArcPath(this._lineStart, refined);
       this.targetingLine.visible = true;
       const lineMat = this.targetingLine.material as THREE.LineDashedMaterial;
@@ -440,9 +472,12 @@ export class PoopManager {
       return null;
     }
 
-    // Required equations:
-    // t = sqrt(2h/g)
-    const t = clamp(Math.sqrt((2 * altitude) / POOP.GRAVITY), 0, PoopManager.MAX_PREDICTION_TIME);
+    // Time to impact with initial downward velocity v0:
+    // h = v0*t + 0.5*g*t^2  →  t = (-v0 + sqrt(v0² + 2gh)) / g
+    const v0 = POOP.INITIAL_DOWN_SPEED;
+    const discriminant = v0 * v0 + 2 * POOP.GRAVITY * altitude;
+    if (discriminant < 0) return null;
+    const t = clamp((-v0 + Math.sqrt(discriminant)) / POOP.GRAVITY, 0, PoopManager.MAX_PREDICTION_TIME);
     if (!Number.isFinite(t) || t <= 0) return null;
 
     // Horizontal velocity Vxy
@@ -493,7 +528,7 @@ export class PoopManager {
       const z = start.z + this.computeHorizontalDisplacement(vz, t);
       const y = Math.max(
         solution.point.y + PoopManager.RETICLE_SURFACE_OFFSET,
-        start.y - 0.5 * POOP.GRAVITY * t * t,
+        start.y - POOP.INITIAL_DOWN_SPEED * t - 0.5 * POOP.GRAVITY * t * t,
       );
       positions.setXYZ(i, x, y, z);
     }
@@ -530,8 +565,13 @@ export class PoopManager {
   /**
    * Collect only mesh-like scene objects for CCIP raycast.
    * Excludes sprites, which require raycaster.camera and can throw when null.
+   * Uses a short-lived cache to avoid full scene traversal every frame.
    */
   private collectRaycastTargets(): void {
+    if (this.raycastTargetAge < PoopManager.RAYCAST_CACHE_INTERVAL && this.raycastTargets.length > 0) {
+      return; // reuse cached target list
+    }
+    this.raycastTargetAge = 0;
     this.raycastTargets.length = 0;
     this.scene.traverseVisible((object) => {
       const anyObject = object as any;
@@ -551,11 +591,31 @@ export class PoopManager {
     return false;
   }
 
+  private showStaleReticle(): void {
+    const staleFade = Math.max(0, 1 - this.staleTimer / PoopManager.MAX_STALE_TIME);
+    const b = this.bombingBlend;
+    if (staleFade <= 0 || b <= 0.01) {
+      this.hideCcip();
+      return;
+    }
+    const opacity = b * 0.85 * staleFade;
+    this.ghostMarker.visible = true;
+    (this.ghostMarker.material as THREE.MeshBasicMaterial).opacity = opacity;
+    this.crosshairDot.visible = true;
+    (this.crosshairDot.material as THREE.MeshBasicMaterial).opacity = opacity;
+    if (this.drawArcPath) {
+      (this.targetingLine.material as THREE.LineDashedMaterial).opacity = opacity * 0.5;
+    } else {
+      this.targetingLine.visible = false;
+    }
+  }
+
   private hideCcip(): void {
     this.ghostMarker.visible = false;
     this.crosshairDot.visible = false;
     this.targetingLine.visible = false;
     this.hasSmoothedImpactPoint = false;
+    this.staleTimer = 0;
   }
 
   get cooldownProgress(): number {

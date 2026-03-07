@@ -8,7 +8,6 @@ export class AudioSystem {
   private initialized = false;
 
   // Wind sound
-  private windOsc: OscillatorNode | null = null;
   private windGain: GainNode | null = null;
 
   // Ground rush sound (IMPROVEMENT #6)
@@ -16,8 +15,6 @@ export class AudioSystem {
   private groundRushGain: GainNode | null = null;
 
   // Background music
-  private musicOscs: OscillatorNode[] = [];
-  private musicGains: GainNode[] = [];
   private musicBeat = 0;
   private musicMeasure = 0;
   private musicNextBeatTime = 0;
@@ -32,9 +29,19 @@ export class AudioSystem {
   init(): void {
     if (this.initialized) return;
     this.ctx = new AudioContext();
+
+    // Compressor prevents clipping when music + SFX stack up
+    const compressor = this.ctx.createDynamicsCompressor();
+    compressor.threshold.value = -18;
+    compressor.knee.value = 6;
+    compressor.ratio.value = 4;
+    compressor.attack.value = 0.003;
+    compressor.release.value = 0.25;
+    compressor.connect(this.ctx.destination);
+
     this.masterGain = this.ctx.createGain();
     this.masterGain.gain.value = AUDIO_CONF.MASTER_VOLUME;
-    this.masterGain.connect(this.ctx.destination);
+    this.masterGain.connect(compressor);
 
     this.sfxGain = this.ctx.createGain();
     this.sfxGain.gain.value = AUDIO_CONF.SFX_VOLUME;
@@ -154,18 +161,86 @@ export class AudioSystem {
   }
 
   playGrounded(): void {
-    this.playTone(300, 0.3, 'sawtooth', 0.3);
-    setTimeout(() => this.playTone(200, 0.4, 'sawtooth', 0.2), 100);
+    this.playTone(300, 0.3, 'triangle', 0.3);
+    setTimeout(() => this.playTone(200, 0.4, 'triangle', 0.2), 100);
   }
 
   playBankCancel(): void {
-    this.playTone(400, 0.08, 'square', 0.15);
-    this.playTone(300, 0.12, 'square', 0.1);
+    this.playTone(400, 0.08, 'sine', 0.15);
+    this.playTone(300, 0.12, 'sine', 0.1);
   }
 
   playBoost(): void {
-    this.playTone(400, 0.1, 'sine', 0.2);
-    this.playTone(600, 0.15, 'sine', 0.15);
+    if (!this.ctx || !this.sfxGain) return;
+
+    // Jet-like ignition: rising filtered noise burst + ascending tone
+    const bufferSize = Math.floor(this.ctx.sampleRate * 0.25);
+    const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) {
+      const env = Math.exp(-i / (bufferSize * 0.4)) * (1 - Math.exp(-i / (bufferSize * 0.02)));
+      data[i] = (Math.random() * 2 - 1) * env;
+    }
+    const noise = this.ctx.createBufferSource();
+    noise.buffer = buffer;
+    const filter = this.ctx.createBiquadFilter();
+    filter.type = 'bandpass';
+    filter.frequency.setValueAtTime(400, this.ctx.currentTime);
+    filter.frequency.exponentialRampToValueAtTime(2000, this.ctx.currentTime + 0.15);
+    filter.Q.value = 1.5;
+    const noiseGain = this.ctx.createGain();
+    noiseGain.gain.value = 0.18;
+    noise.connect(filter);
+    filter.connect(noiseGain);
+    noiseGain.connect(this.sfxGain);
+    noise.start();
+    noise.stop(this.ctx.currentTime + 0.3);
+
+    // Rising tone
+    this.playTone(400, 0.12, 'sine', 0.18);
+    setTimeout(() => this.playTone(700, 0.1, 'sine', 0.12), 40);
+    setTimeout(() => this.playTone(1000, 0.08, 'sine', 0.08), 80);
+  }
+
+  /** Whoosh sound when entering a dive */
+  playDiveWhoosh(speed: number): void {
+    if (!this.ctx || !this.sfxGain) return;
+    const intensity = Math.min(speed / 100, 1);
+
+    // Descending filtered noise — wind rushing past
+    const bufferSize = Math.floor(this.ctx.sampleRate * 0.3);
+    const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) {
+      data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (bufferSize * 0.5));
+    }
+    const noise = this.ctx.createBufferSource();
+    noise.buffer = buffer;
+    const filter = this.ctx.createBiquadFilter();
+    filter.type = 'bandpass';
+    filter.frequency.setValueAtTime(1500, this.ctx.currentTime);
+    filter.frequency.exponentialRampToValueAtTime(300, this.ctx.currentTime + 0.25);
+    filter.Q.value = 0.8;
+    const gain = this.ctx.createGain();
+    gain.gain.value = 0.1 + intensity * 0.1;
+    noise.connect(filter);
+    filter.connect(gain);
+    gain.connect(this.sfxGain);
+    noise.start();
+    noise.stop(this.ctx.currentTime + 0.35);
+  }
+
+  /** Snap sound on flip completion */
+  playFlipSnap(): void {
+    this.playTone(1200, 0.04, 'sine', 0.2);
+    setTimeout(() => this.playTone(800, 0.06, 'sine', 0.12), 30);
+  }
+
+  /** Quick ascending U-turn pivot sound */
+  playUTurn(): void {
+    this.playTone(500, 0.06, 'sine', 0.15);
+    setTimeout(() => this.playTone(900, 0.08, 'sine', 0.12), 25);
+    setTimeout(() => this.playTone(600, 0.05, 'sine', 0.08), 60);
   }
 
   playLevelUp(): void {
@@ -185,9 +260,9 @@ export class AudioSystem {
 
   playEmote(): void {
     // Bird squawk
-    this.playTone(1000, 0.05, 'sawtooth', 0.15);
-    this.playTone(1500, 0.08, 'sawtooth', 0.1);
-    this.playTone(800, 0.06, 'sawtooth', 0.12);
+    this.playTone(1000, 0.05, 'triangle', 0.15);
+    this.playTone(1500, 0.08, 'triangle', 0.1);
+    this.playTone(800, 0.06, 'triangle', 0.12);
   }
 
   playWantedSting(): void {
@@ -227,15 +302,15 @@ export class AudioSystem {
   }
 
   playCarEnter(): void {
-    this.playTone(200, 0.08, 'square', 0.15);
-    setTimeout(() => this.playTone(350, 0.1, 'square', 0.12), 50);
+    this.playTone(200, 0.08, 'sine', 0.15);
+    setTimeout(() => this.playTone(350, 0.1, 'sine', 0.12), 50);
     setTimeout(() => this.playTone(500, 0.06, 'sine', 0.1), 100);
   }
 
   playCarExit(): void {
     this.playTone(500, 0.06, 'sine', 0.1);
-    setTimeout(() => this.playTone(350, 0.08, 'square', 0.12), 50);
-    setTimeout(() => this.playTone(200, 0.1, 'square', 0.15), 100);
+    setTimeout(() => this.playTone(350, 0.08, 'sine', 0.12), 50);
+    setTimeout(() => this.playTone(200, 0.1, 'sine', 0.15), 100);
   }
 
   playUIClick(): void {
@@ -269,7 +344,7 @@ export class AudioSystem {
     if (shouldPlay && !this.groundRushOsc) {
       // Start low rumble when ground skimming
       this.groundRushOsc = this.ctx.createOscillator();
-      this.groundRushOsc.type = 'sawtooth';
+      this.groundRushOsc.type = 'triangle';
       this.groundRushOsc.frequency.value = 60;
 
       this.groundRushGain = this.ctx.createGain();

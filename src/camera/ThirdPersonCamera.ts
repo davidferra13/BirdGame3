@@ -20,6 +20,7 @@ export class ThirdPersonCamera {
   // Screen shake
   private shakeIntensity = 0;
   private shakeTimer = 0;
+  private shakeMaxDuration = 0.2;
   private shakeOffset = new THREE.Vector3();
 
   // Bombing run mode (dedicated toggle)
@@ -30,9 +31,13 @@ export class ThirdPersonCamera {
   private vertigoBlend = 0;        // 0 = normal, 1 = full vertigo effect
   private vertigoFov = 0;          // current vertigo FOV override
 
-  // Free-look
+  // Free-look (right mouse — clamped ±45° yaw)
   private freeLookYawOffset = 0;
   private freeLookPitchOffset = 0;
+
+  // Orbit (middle mouse — full 360° yaw)
+  private orbitYawOffset = 0;
+  private orbitPitchOffset = 0;
 
   // Driving mode
   private drivingMode = false;
@@ -40,17 +45,24 @@ export class ThirdPersonCamera {
   // Smoothed camera offsets (prevent snapping on state changes)
   private smoothOffsetBehind = CAMERA.OFFSET_BEHIND;
   private smoothOffsetAbove = CAMERA.OFFSET_ABOVE;
-  private readonly FREE_LOOK_MAX_YAW = Math.PI / 4; // ±45 degrees
-  private readonly FREE_LOOK_MAX_PITCH = Math.PI / 6; // ±30 degrees
-  private readonly FREE_LOOK_SENSITIVITY = 0.003;
+
+  // Camera collision (prevent clipping through buildings)
+  private collidableMeshes: THREE.Object3D[] = [];
+  private readonly _camDir = new THREE.Vector3();
+  private readonly _camRay = new THREE.Raycaster();
 
   constructor(aspect: number) {
     this.camera = new THREE.PerspectiveCamera(
       CAMERA.SPEED_FOV_MIN,
       aspect,
       1,
-      1400,
+      CAMERA.CAMERA_FAR_PLANE,
     );
+  }
+
+  /** Set building meshes for camera collision detection. */
+  setCollidableMeshes(meshes: THREE.Object3D[]): void {
+    this.collidableMeshes = meshes;
   }
 
   /** Set intro camera: fixed position looking at a target */
@@ -82,7 +94,10 @@ export class ThirdPersonCamera {
   /** Trigger screen shake effect. Intensity scales effect strength, duration in seconds. */
   triggerShake(intensity: number, duration: number = 0.2): void {
     this.shakeIntensity = Math.max(this.shakeIntensity, intensity);
-    this.shakeTimer = Math.max(this.shakeTimer, duration);
+    if (duration >= this.shakeTimer) {
+      this.shakeTimer = duration;
+      this.shakeMaxDuration = duration;
+    }
   }
 
   update(dt: number, bird: Bird, input?: InputManager): void {
@@ -94,25 +109,52 @@ export class ThirdPersonCamera {
     }
 
     const ctrl = bird.controller;
+    const airflow = ctrl.getAirflow();
+    const surfBlend = airflow * clamp(Math.abs(ctrl.rollAngle) / FLIGHT.MAX_BANK_ANGLE, 0, 1);
 
-    // Free-look mode
+    // Free-look mode (right mouse — clamped ±45° yaw)
     if (input && input.isFreeLookActive()) {
       // Apply mouse movement to free-look offsets
-      this.freeLookYawOffset += input.mouseDx * this.FREE_LOOK_SENSITIVITY;
-      this.freeLookPitchOffset += input.mouseDy * this.FREE_LOOK_SENSITIVITY;
+      this.freeLookYawOffset += input.mouseDx * CAMERA.FREE_LOOK_SENSITIVITY;
+      this.freeLookPitchOffset += input.mouseDy * CAMERA.FREE_LOOK_SENSITIVITY;
 
       // Clamp offsets
-      this.freeLookYawOffset = clamp(this.freeLookYawOffset, -this.FREE_LOOK_MAX_YAW, this.FREE_LOOK_MAX_YAW);
-      this.freeLookPitchOffset = clamp(this.freeLookPitchOffset, -this.FREE_LOOK_MAX_PITCH, this.FREE_LOOK_MAX_PITCH);
+      this.freeLookYawOffset = clamp(this.freeLookYawOffset, -CAMERA.FREE_LOOK_MAX_YAW, CAMERA.FREE_LOOK_MAX_YAW);
+      this.freeLookPitchOffset = clamp(this.freeLookPitchOffset, -CAMERA.FREE_LOOK_MAX_PITCH, CAMERA.FREE_LOOK_MAX_PITCH);
     } else {
       // Lerp back to center when not free-looking
-      const returnSpeed = 8.0;
-      this.freeLookYawOffset *= Math.max(0, 1 - returnSpeed * dt);
-      this.freeLookPitchOffset *= Math.max(0, 1 - returnSpeed * dt);
+      this.freeLookYawOffset *= Math.max(0, 1 - CAMERA.FREE_LOOK_RETURN_SPEED * dt);
+      this.freeLookPitchOffset *= Math.max(0, 1 - CAMERA.FREE_LOOK_RETURN_SPEED * dt);
 
       // Snap to zero when close enough
       if (Math.abs(this.freeLookYawOffset) < 0.01) this.freeLookYawOffset = 0;
       if (Math.abs(this.freeLookPitchOffset) < 0.01) this.freeLookPitchOffset = 0;
+    }
+
+    // Gamepad right-stick camera look (dt-scaled so feel matches mouse free-look)
+    if (input) {
+      const gpCamX = input.getGamepadCamX();
+      const gpCamY = input.getGamepadCamY();
+      if (Math.abs(gpCamX) > 0 || Math.abs(gpCamY) > 0) {
+        const gpSensitivity = CAMERA.FREE_LOOK_SENSITIVITY * 55;
+        this.freeLookYawOffset += gpCamX * gpSensitivity * dt;
+        this.freeLookPitchOffset += gpCamY * gpSensitivity * dt;
+        this.freeLookYawOffset = clamp(this.freeLookYawOffset, -CAMERA.FREE_LOOK_MAX_YAW, CAMERA.FREE_LOOK_MAX_YAW);
+        this.freeLookPitchOffset = clamp(this.freeLookPitchOffset, -CAMERA.FREE_LOOK_MAX_PITCH, CAMERA.FREE_LOOK_MAX_PITCH);
+      }
+    }
+
+    // Orbit mode (middle mouse — full 360° yaw, wider pitch)
+    if (input && input.isOrbitActive()) {
+      this.orbitYawOffset += input.mouseDx * CAMERA.ORBIT_SENSITIVITY;
+      this.orbitPitchOffset += input.mouseDy * CAMERA.ORBIT_SENSITIVITY;
+      this.orbitPitchOffset = clamp(this.orbitPitchOffset, -CAMERA.ORBIT_MAX_PITCH, CAMERA.ORBIT_MAX_PITCH);
+    } else {
+      // Lerp back to center when released
+      this.orbitYawOffset *= Math.max(0, 1 - CAMERA.ORBIT_RETURN_SPEED * dt);
+      this.orbitPitchOffset *= Math.max(0, 1 - CAMERA.ORBIT_RETURN_SPEED * dt);
+      if (Math.abs(this.orbitYawOffset) < 0.005) this.orbitYawOffset = 0;
+      if (Math.abs(this.orbitPitchOffset) < 0.005) this.orbitPitchOffset = 0;
     }
 
     // Vertigo shot: trigger on boost activation
@@ -121,6 +163,9 @@ export class ThirdPersonCamera {
       this.vertigoBlend = 1;
       this.vertigoFov = CAMERA.BOOST_FOV_PUNCH;
       this.triggerShake(CAMERA.BOOST_SHAKE_INTENSITY, 0.15);
+    }
+    if (ctrl.pullOutJustActivated) {
+      this.triggerShake(0.04 + ctrl.getPullOutBlend() * 0.05, 0.12);
     }
 
     // Vertigo punch phase: hold the extreme values briefly
@@ -140,9 +185,9 @@ export class ThirdPersonCamera {
     // Bombing run mode: ramp blend when bomber mode is active in flight
     const wantsBombing = ctrl.isBomberMode && !ctrl.isGrounded && !ctrl.isDiving;
     if (wantsBombing) {
-      this.bombingBlend = moveToward(this.bombingBlend, 1, dt * 2.0); // ~0.5s ramp up
+      this.bombingBlend = moveToward(this.bombingBlend, 1, dt * CAMERA.BOMBING_RAMP_UP_SPEED);
     } else {
-      this.bombingBlend = moveToward(this.bombingBlend, 0, dt * 3.0); // ~0.33s ramp down
+      this.bombingBlend = moveToward(this.bombingBlend, 0, dt * CAMERA.BOMBING_RAMP_DOWN_SPEED);
     }
     const bombingSpeedNorm = clamp(
       remap(ctrl.forwardSpeed, FLIGHT.BASE_SPEED, FLIGHT.DIVE_BOMB_SPEED, 0, 1),
@@ -173,13 +218,18 @@ export class ThirdPersonCamera {
     }
 
     // Smooth offset transitions (with extra catch-up at high-speed bombing)
-    const offsetLerpSpeed = 3.0 + this.bombingBlend * (2.0 + bombingSpeedNorm * 8.0);
+    const offsetLerpSpeed = CAMERA.OFFSET_LERP_BASE + this.bombingBlend * (2.0 + bombingSpeedNorm * 8.0);
     const offsetAlpha = 1 - Math.exp(-offsetLerpSpeed * dt);
     this.smoothOffsetBehind += (targetOffsetBehind - this.smoothOffsetBehind) * offsetAlpha;
     this.smoothOffsetAbove += (targetOffsetAbove - this.smoothOffsetAbove) * offsetAlpha;
 
     let offsetBehind = this.smoothOffsetBehind;
     let offsetAbove = this.smoothOffsetAbove;
+
+    if (!ctrl.isGrounded) {
+      offsetBehind += airflow * CAMERA.SURF_OFFSET_BEHIND;
+      offsetAbove -= airflow * CAMERA.SURF_OFFSET_DROP;
+    }
 
     // Vertigo shot: pull camera in close (dolly zoom — close camera + wide FOV = vertigo warp)
     if (this.vertigoBlend > 0) {
@@ -192,23 +242,58 @@ export class ThirdPersonCamera {
     offsetBehind += CAMERA.DROP_ZOOM_EXTRA_BEHIND * dropBlend;
     offsetAbove += CAMERA.DROP_ZOOM_EXTRA_ABOVE * dropBlend;
 
-    // Compute ideal position: offset rotated by yaw (+ free-look offset)
+    // Compute ideal position: offset rotated by yaw (+ free-look + orbit offsets)
     const localOffset = new THREE.Vector3(0, offsetAbove, offsetBehind);
+    localOffset.x += Math.sin(ctrl.rollAngle) * CAMERA.SURF_SIDE_OFFSET * surfBlend;
     const yawQuat = new THREE.Quaternion();
-    const effectiveYaw = ctrl.yawAngle + this.freeLookYawOffset;
+    const effectiveYaw = ctrl.yawAngle + this.freeLookYawOffset + this.orbitYawOffset;
     yawQuat.setFromAxisAngle(new THREE.Vector3(0, 1, 0), effectiveYaw);
     localOffset.applyQuaternion(yawQuat);
 
     const idealPosition = ctrl.position.clone().add(localOffset);
 
-    // Apply free-look pitch offset to vertical position
-    const pitchOffset = Math.sin(this.freeLookPitchOffset) * offsetBehind * 0.4;
+    // Apply pitch offsets to vertical position
+    const pitchOffset = Math.sin(this.freeLookPitchOffset + this.orbitPitchOffset) * offsetBehind * CAMERA.PITCH_OFFSET_MULTIPLIER;
     idealPosition.y += pitchOffset;
 
-    // Keep player centered on screen by always looking at the bird anchor.
-    // Free-look still works by orbiting camera position, not by moving the look target off-player.
-    const lookTarget = ctrl.position.clone();
-    lookTarget.y += this.drivingMode ? 1.3 : 1.8;
+    // Camera collision: prevent clipping through buildings
+    if (this.collidableMeshes.length > 0) {
+      this._camDir.subVectors(idealPosition, ctrl.position);
+      const camDist = this._camDir.length();
+      if (camDist > 0.1) {
+        this._camDir.normalize();
+        this._camRay.set(ctrl.position, this._camDir);
+        this._camRay.near = 0.5;
+        this._camRay.far = camDist;
+        const hits = this._camRay.intersectObjects(this.collidableMeshes, false);
+        if (hits.length > 0) {
+          idealPosition.copy(ctrl.position).addScaledVector(this._camDir, Math.max(0.5, hits[0].distance - 0.5));
+        }
+      }
+    }
+
+    // Compute look target: ahead of the bird (with free-look/orbit offset)
+    // Reduce lookahead during bombing mode so camera looks closer to directly below
+    const baseLookahead = this.drivingMode
+      ? CAMERA.DRIVING_LOOKAHEAD
+      : CAMERA.LOOKAHEAD_DISTANCE * (1 - this.bombingBlend * (1 - CAMERA.BOMBING_LOOKAHEAD_SCALE))
+        + this.bombingBlend * bombingSpeedNorm * 8;
+    // Attenuate lookahead when grounded (walking is much slower than flying)
+    const groundAtten = ctrl.isGrounded ? CAMERA.GROUND_LOOKAHEAD_ATTEN : 1.0;
+    const effectiveLookahead = baseLookahead * groundAtten + airflow * CAMERA.SURF_LOOKAHEAD_BONUS;
+    const lookYawQuat = new THREE.Quaternion();
+    lookYawQuat.setFromAxisAngle(new THREE.Vector3(0, 1, 0), effectiveYaw);
+    const lookForward = new THREE.Vector3(0, 0, -1).applyQuaternion(lookYawQuat);
+    const lookRight = new THREE.Vector3(1, 0, 0).applyQuaternion(lookYawQuat);
+
+    const lookTarget = ctrl.position
+      .clone()
+      .add(lookForward.multiplyScalar(effectiveLookahead));
+    lookTarget.addScaledVector(lookRight, Math.sin(ctrl.rollAngle) * CAMERA.SURF_LOOK_SIDE * surfBlend);
+    lookTarget.y += CAMERA.LOOK_TARGET_HEIGHT;
+    lookTarget.y -= Math.sin(this.freeLookPitchOffset) * effectiveLookahead * CAMERA.PITCH_LOOK_TARGET_MULT;
+    lookTarget.y += CAMERA.DROP_LOOK_DOWN_OFFSET * dropBlend;
+    lookTarget.y += CAMERA.BOMBING_LOOK_DOWN * this.bombingBlend;
 
     if (!this.initialized) {
       // Snap on first frame
@@ -219,9 +304,9 @@ export class ThirdPersonCamera {
       // Bomber mode now scales follow speed with movement speed so camera won't lag behind.
       const baseLerpSpeed = ctrl.isGrounded ? CAMERA.GROUND_LERP_SPEED : CAMERA.POSITION_LERP_SPEED;
       const baseLookLerp = ctrl.isGrounded ? CAMERA.GROUND_LERP_SPEED : CAMERA.LOOKAT_LERP_SPEED;
-      const bombingCatchup = this.bombingBlend * (2.5 + bombingSpeedNorm * 10.0);
-      const lerpSpeed = Math.max(baseLerpSpeed, CAMERA.BOMBING_LERP_SPEED + bombingCatchup);
-      const lookLerp = Math.max(baseLookLerp, CAMERA.BOMBING_LERP_SPEED + bombingCatchup * 1.15);
+      const bombingCatchup = this.bombingBlend * (CAMERA.BOMBING_CATCHUP_BASE + bombingSpeedNorm * CAMERA.BOMBING_CATCHUP_SCALE);
+      const lerpSpeed = Math.max(baseLerpSpeed, CAMERA.BOMBING_LERP_SPEED + bombingCatchup) + airflow * CAMERA.SURF_LERP_BOOST;
+      const lookLerp = Math.max(baseLookLerp, CAMERA.BOMBING_LERP_SPEED + bombingCatchup * 1.15) + airflow * (CAMERA.SURF_LERP_BOOST + 0.5);
 
       const posAlpha = 1 - Math.exp(-lerpSpeed * dt);
       this.camera.position.lerp(idealPosition, posAlpha);
@@ -233,7 +318,7 @@ export class ThirdPersonCamera {
     // Screen shake effect (impact-based)
     if (this.shakeTimer > 0) {
       this.shakeTimer -= dt;
-      const shakeFactor = this.shakeTimer / 0.2; // Normalize to shake duration
+      const shakeFactor = this.shakeMaxDuration > 0 ? this.shakeTimer / this.shakeMaxDuration : 0;
       this.shakeOffset.set(
         (Math.random() - 0.5) * this.shakeIntensity * shakeFactor,
         (Math.random() - 0.5) * this.shakeIntensity * shakeFactor,
@@ -271,8 +356,9 @@ export class ThirdPersonCamera {
     if (this.vertigoBlend > 0) {
       targetFov += (CAMERA.BOOST_FOV_PUNCH - targetFov) * this.vertigoBlend;
     }
+    targetFov += airflow * CAMERA.SURF_FOV_BONUS;
 
-    const fovAlpha = 1 - Math.exp(-2.5 * dt);
+    const fovAlpha = 1 - Math.exp(-CAMERA.FOV_LERP_SPEED * dt);
     this.camera.fov += (targetFov - this.camera.fov) * fovAlpha;
     this.camera.updateProjectionMatrix();
   }

@@ -106,6 +106,8 @@ interface SavedGameState {
     totalPoliceHit: number;
     totalChefsHit: number;
     totalTreemenHit: number;
+    totalZooHits: number;
+    totalDistrictsDiscovered: number;
     totalTimesGrounded: number;
     highestHeat: number;
     highestStreak: number;
@@ -120,6 +122,7 @@ interface SavedGameState {
   worms: number;
   goldenEggs: number;
   bankedCoins: number;
+  discoveredDistricts?: string[];
 }
 
 const DEFAULT_STATS: SavedGameState['stats'] = {
@@ -130,6 +133,8 @@ const DEFAULT_STATS: SavedGameState['stats'] = {
   totalPoliceHit: 0,
   totalChefsHit: 0,
   totalTreemenHit: 0,
+  totalZooHits: 0,
+  totalDistrictsDiscovered: 0,
   totalTimesGrounded: 0,
   highestHeat: 0,
   highestStreak: 0,
@@ -141,6 +146,9 @@ const DEFAULT_STATS: SavedGameState['stats'] = {
 
 let queuedSupabaseSave: Promise<void> = Promise.resolve();
 let autoSaveIntervalId: number | null = null;
+// Tracks which user's profile has already been applied to live systems, so the
+// auth subscriber doesn't double-apply on re-renders or duplicate setState calls.
+let profileAppliedForUser: string | null = null;
 
 function loadGameState(): SavedGameState | null {
   try {
@@ -169,6 +177,8 @@ function mergeStats(localStats?: SavedGameState['stats']): SavedGameState['stats
     totalPoliceHit: Math.max(DEFAULT_STATS.totalPoliceHit, localStats?.totalPoliceHit ?? 0),
     totalChefsHit: Math.max(DEFAULT_STATS.totalChefsHit, localStats?.totalChefsHit ?? 0),
     totalTreemenHit: Math.max(DEFAULT_STATS.totalTreemenHit, localStats?.totalTreemenHit ?? 0),
+    totalZooHits: Math.max(DEFAULT_STATS.totalZooHits, localStats?.totalZooHits ?? 0),
+    totalDistrictsDiscovered: Math.max(DEFAULT_STATS.totalDistrictsDiscovered, localStats?.totalDistrictsDiscovered ?? 0),
     totalTimesGrounded: Math.max(DEFAULT_STATS.totalTimesGrounded, localStats?.totalTimesGrounded ?? 0),
     highestHeat: Math.max(DEFAULT_STATS.highestHeat, localStats?.highestHeat ?? 0),
     highestStreak: Math.max(DEFAULT_STATS.highestStreak, localStats?.highestStreak ?? 0),
@@ -179,15 +189,16 @@ function mergeStats(localStats?: SavedGameState['stats']): SavedGameState['stats
   };
 }
 
-function getMergedStateForAuthenticatedUser(profile: Profile, localState: SavedGameState | null): SavedGameState {
+function getMergedStateForAuthenticatedUser(profile: Profile | null, localState: SavedGameState | null): SavedGameState {
   return {
     stats: mergeStats(localState?.stats),
-    level: Math.max(profile.level ?? 1, localState?.level ?? 1),
-    xp: Math.max(profile.xp ?? 0, localState?.xp ?? 0),
-    feathers: Math.max(profile.feathers ?? 0, localState?.feathers ?? 0),
-    worms: Math.max(profile.worms ?? 0, localState?.worms ?? 0),
-    goldenEggs: Math.max(profile.golden_eggs ?? 0, localState?.goldenEggs ?? 0),
-    bankedCoins: Math.max(profile.coins ?? 0, localState?.bankedCoins ?? 0),
+    level: Math.max(profile?.level ?? 1, localState?.level ?? 1),
+    xp: Math.max(profile?.xp ?? 0, localState?.xp ?? 0),
+    feathers: Math.max(profile?.feathers ?? 0, localState?.feathers ?? 0),
+    worms: Math.max(profile?.worms ?? 0, localState?.worms ?? 0),
+    goldenEggs: Math.max(profile?.golden_eggs ?? 0, localState?.goldenEggs ?? 0),
+    bankedCoins: Math.max(profile?.coins ?? 0, localState?.bankedCoins ?? 0),
+    discoveredDistricts: [...new Set(localState?.discoveredDistricts ?? [])],
   };
 }
 
@@ -268,7 +279,50 @@ function getCurrentStateFromGame(): SavedGameState | null {
     worms: game.progression.worms,
     goldenEggs: game.progression.goldenEggs,
     bankedCoins: scoreSystem.bankedCoins,
+    discoveredDistricts: game.getDiscoveredDistricts(),
   };
+}
+
+/**
+ * Apply a newly-arrived profile to whichever systems are currently live.
+ * Called when the profile loads after the startup timeout (background fetch)
+ * or whenever auth state transitions to a profile being available.
+ */
+function applyProfileToSystems(profile: Profile): void {
+  const localState = loadGameState();
+  const mergedState = getMergedStateForAuthenticatedUser(profile, localState);
+
+  if (game) {
+    // Game is running: merge with live state so we don't roll back current session earnings.
+    const liveState = getCurrentStateFromGame();
+    if (liveState) {
+      const finalState: SavedGameState = {
+        stats: mergeStats({ ...mergedState.stats, ...liveState.stats }),
+        level: Math.max(mergedState.level, liveState.level),
+        xp: Math.max(mergedState.xp, liveState.xp),
+        feathers: Math.max(mergedState.feathers, liveState.feathers),
+        worms: Math.max(mergedState.worms, liveState.worms),
+        goldenEggs: Math.max(mergedState.goldenEggs, liveState.goldenEggs),
+        bankedCoins: Math.max(mergedState.bankedCoins, liveState.bankedCoins),
+        discoveredDistricts: [...new Set([
+          ...(mergedState.discoveredDistricts ?? []),
+          ...(liveState.discoveredDistricts ?? []),
+        ])],
+      };
+      const scoreSystem = (game as any).scoreSystem as ScoreSystem;
+      applySavedStateToSystems(game.progression, scoreSystem, finalState);
+      game.setDiscoveredDistricts(finalState.discoveredDistricts ?? []);
+      saveGameState(finalState);
+      return;
+    }
+  }
+
+  // At menu: update standalone systems and refresh shop UI.
+  saveGameState(mergedState);
+  if (menuProgression && menuScore) {
+    applySavedStateToSystems(menuProgression, menuScore, mergedState);
+    menuShop?.refresh();
+  }
 }
 
 function trySendBeaconSave(state: SavedGameState): void {
@@ -293,21 +347,28 @@ function trySendBeaconSave(state: SavedGameState): void {
 }
 
 /** Build standalone shop systems from persisted data for menu use */
-function initMenuShop(): void {
+async function initMenuShop(): Promise<void> {
   menuCosmetics = new CosmeticsSystem();
   menuProgression = new ProgressionSystem();
   menuScore = new ScoreSystem();
 
   // Load persisted data into standalone systems
   const authState = authStateManager.getState();
-  if (authState.isAuthenticated && authState.profile) {
-    // Authenticated: merge local fallback and Supabase profile, keeping best values.
+  if (authState.isAuthenticated && authState.userId) {
+    // Authenticated: merge Supabase profile + local fallback, keeping best values.
+    // profile may be null if the profile fetch timed out — handle gracefully.
     const localState = loadGameState();
     const mergedState = getMergedStateForAuthenticatedUser(authState.profile, localState);
     applySavedStateToSystems(menuProgression, menuScore, mergedState);
-    saveGameState(mergedState);
+    // Only write to localStorage if we have something meaningful; prevents overwriting
+    // good data with zeros when profile is null and localStorage is empty.
+    if (authState.profile || localState) {
+      saveGameState(mergedState);
+    }
 
-    if (authState.userId && shouldSyncProfileFromState(authState.profile, mergedState)) {
+    // Only sync to Supabase when we have the actual profile to compare against.
+    // Saving with profile=null would overwrite real server data with zero defaults.
+    if (authState.profile && shouldSyncProfileFromState(authState.profile, mergedState)) {
       void queueSupabaseStateSave(authState.userId, mergedState);
     }
   } else {
@@ -326,18 +387,37 @@ function initMenuShop(): void {
     }
   }
 
-  // Mark owned items from guest inventory (for guests)
-  if (!authState.isAuthenticated) {
+  // Mark owned items and load equipped cosmetics
+  if (authState.isAuthenticated && authState.userId) {
+    // Authenticated: load owned inventory and equipped cosmetics from Supabase
+    try {
+      const { getInventory } = await import('./services/InventoryService');
+      const ownedItems = await getInventory(authState.userId);
+      for (const item of ownedItems) {
+        const cosmeticItem = menuCosmetics.items.find(i => i.id === item.item_id);
+        if (cosmeticItem) cosmeticItem.owned = true;
+      }
+    } catch (e) {
+      console.warn('Failed to load Supabase inventory for menu:', e);
+    }
+
+    try {
+      const { loadEquippedCosmetics } = await import('./services/PersistenceService');
+      const equipped = await loadEquippedCosmetics();
+      menuCosmetics.equippedSkin = equipped.skin;
+      menuCosmetics.equippedTrail = equipped.trail;
+      menuCosmetics.equippedSplat = equipped.splat;
+    } catch (e) {
+      console.warn('Failed to load equipped cosmetics for menu:', e);
+    }
+  } else {
+    // Guest: load from localStorage
     const inventory = loadGuestInventory();
     for (const item of inventory) {
       const cosmeticItem = menuCosmetics.items.find(i => i.id === item.item_id);
       if (cosmeticItem) cosmeticItem.owned = true;
     }
-  }
 
-  // Load equipped cosmetics so profile page shows correct state
-  // For guests, load from localStorage; for authenticated, loaded async via Supabase later
-  if (!authState.isAuthenticated) {
     const equipped = loadGuestEquipped();
     if (equipped.skin) {
       menuCosmetics.equippedSkin = equipped.skin.replace('skin_', '') as any;
@@ -454,15 +534,19 @@ async function startGame(): Promise<void> {
 
     // Load persisted game state into game systems
     const authState = authStateManager.getState();
-    if (authState.isAuthenticated && authState.profile) {
-      // Authenticated: merge local fallback and Supabase profile, keeping best values.
+    if (authState.isAuthenticated && authState.userId) {
+      // Authenticated: merge Supabase profile + local fallback, keeping best values.
+      // profile may be null if the profile fetch timed out — handle gracefully.
       const localState = loadGameState();
       const mergedState = getMergedStateForAuthenticatedUser(authState.profile, localState);
       const scoreSystem = (game as any).scoreSystem as ScoreSystem;
       applySavedStateToSystems(game.progression, scoreSystem, mergedState);
-      saveGameState(mergedState);
+      game.setDiscoveredDistricts(mergedState.discoveredDistricts ?? []);
+      if (authState.profile || localState) {
+        saveGameState(mergedState);
+      }
 
-      if (authState.userId && shouldSyncProfileFromState(authState.profile, mergedState)) {
+      if (authState.profile && shouldSyncProfileFromState(authState.profile, mergedState)) {
         await queueSupabaseStateSave(authState.userId, mergedState);
       }
     } else {
@@ -470,10 +554,12 @@ async function startGame(): Promise<void> {
       const savedState = loadGameState();
       if (savedState) {
         const scoreSystem = (game as any).scoreSystem as ScoreSystem;
-        applySavedStateToSystems(game.progression, scoreSystem, {
+        const mergedGuestState = {
           ...savedState,
           stats: mergeStats(savedState.stats),
-        });
+        };
+        applySavedStateToSystems(game.progression, scoreSystem, mergedGuestState);
+        game.setDiscoveredDistricts(mergedGuestState.discoveredDistricts ?? []);
       }
 
       // Load owned inventory into game's cosmetics system (guests only)
@@ -590,8 +676,12 @@ async function initialize(): Promise<void> {
     menuAchievements = new AchievementsPanel();
     menuAchievements.setOnClose(() => mainMenu?.show());
 
-    // Build standalone shop from persisted data
-    initMenuShop();
+    // Build standalone shop from persisted data — hard timeout so a slow
+    // Supabase response can never keep the loading screen stuck at 50%.
+    await Promise.race([
+      initMenuShop(),
+      new Promise<void>((resolve) => setTimeout(resolve, 12000)),
+    ]);
 
     // Build profile page from standalone systems
     initMenuProfile();
@@ -607,9 +697,20 @@ async function initialize(): Promise<void> {
       showAuthScreen();
     });
 
-    // Subscribe to auth changes to keep main menu display updated
+    // Subscribe to auth changes to keep main menu display updated.
+    // Also handles the case where the profile arrives after the startup timeout:
+    // the background fetch in AuthStateManager emits here, and we apply it to
+    // whatever systems are currently live (menu shop or active game).
     authStateManager.subscribe((state) => {
       mainMenu?.updateAuthDisplay(state);
+
+      if (state.isAuthenticated && state.profile && state.profile.id !== profileAppliedForUser) {
+        profileAppliedForUser = state.profile.id;
+        applyProfileToSystems(state.profile);
+      }
+      if (!state.isAuthenticated) {
+        profileAppliedForUser = null;
+      }
     });
 
     // Set initial auth display
@@ -837,14 +938,14 @@ async function initialize(): Promise<void> {
 /** Show the auth screen with proper callback wiring */
 function showAuthScreen(): void {
   if (!authScreen) return;
-  authScreen.setOnComplete((state) => {
+  authScreen.setOnComplete(async (state) => {
     console.log('[MAIN] Auth complete, state:', state);
     console.log('[MAIN] Updating auth display');
     mainMenu?.updateAuthDisplay(state);
 
     // Reinitialize menu shop and profile with new auth state (loads from Supabase if logged in)
     console.log('[MAIN] Reinitializing menu shop');
-    initMenuShop();
+    await initMenuShop();
 
     console.log('[MAIN] Reinitializing menu profile');
     initMenuProfile();

@@ -137,7 +137,7 @@ export interface ServerMessage {
     | 'mvm_match_found' | 'mvm_round_update' | 'mvm_match_end' | 'murmuration_chat' | 'murmuration_notification'
     | 'heist-match-start' | 'heist-round-start' | 'heist-trophy-grabbed' | 'heist-slam'
     | 'heist-score' | 'heist-trophy-settled' | 'heist-trophy-reset' | 'heist-overtime' | 'heist-match-end'
-    | 'admin_announce' | 'admin_kicked';
+    | 'admin_announce' | 'admin_kicked' | 'admin_teleport' | 'admin_warn';
   data?: any;
 }
 

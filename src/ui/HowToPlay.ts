@@ -68,7 +68,7 @@ export class HowToPlay {
       margin-bottom: 30px;
       font-size: 14px;
     `;
-    subtitle.textContent = 'Earn coins by hitting targets, then bank safely at the Sanctuary.';
+    subtitle.textContent = 'Glide through the city, gather shiny rewards, and settle your coins at the Sanctuary.';
     panel.appendChild(subtitle);
 
     const content = document.createElement('div');
@@ -107,7 +107,7 @@ export class HowToPlay {
         row(key('bomberMode'), 'Toggle Bomber Mode'),
       ) +
       section('Actions', '#FFD700',
-        row('LEFT CLICK', 'Drop Poop') +
+        row('LEFT CLICK', 'Drop a little plop') +
         row('RIGHT CLICK', 'Free Look / Camera (Horse: Lasso)') +
         row(key('boost'), 'Boost (Speed Burst)') +
         row(key('interact'), 'Interact / Bank / Land') +
@@ -131,24 +131,30 @@ export class HowToPlay {
         row(`${key('dive')} + Flip Key`, 'Double Flip Modifier'),
       ) +
       section('Objective', '#50C878',
-        `<div style="margin-bottom:8px;"><strong>1. Earn Coins:</strong> Hit NPCs and targets with poop.</div>` +
-        `<div style="margin-bottom:8px;"><strong>2. Build Streaks:</strong> Chain hits for multiplier and faster gains.</div>` +
-        `<div style="margin-bottom:8px;"><strong>3. Manage Heat:</strong> More heat gives more reward but higher danger.</div>` +
-        `<div style="margin-bottom:8px;"><strong>4. Bank Often:</strong> Fly to the green beam and hold ${key('interact')} to bank.</div>` +
-        `<div style="margin-bottom:8px;"><strong>5. Stay Off The Ground:</strong> Getting grounded drops unbanked coins.</div>`,
+        `<div style="margin-bottom:8px;"><strong>1. Wander a Little:</strong> Follow rings, thermals, and new districts for cozy discovery bonuses.</div>` +
+        `<div style="margin-bottom:8px;"><strong>2. Gather Rewards:</strong> Coins, feathers, and other shiny finds add up quickly.</div>` +
+        `<div style="margin-bottom:8px;"><strong>3. Keep a Gentle Rhythm:</strong> Small streaks and a little Heat boost your rewards.</div>` +
+        `<div style="margin-bottom:8px;"><strong>4. Visit Sanctuary Often:</strong> Fly to the green beam and hold ${key('interact')} to bank safely.</div>` +
+        `<div style="margin-bottom:8px;"><strong>5. Favor Soft Landings:</strong> Staying airborne protects your unbanked coins.</div>`,
       ) +
       section('Vehicles &amp; Mounts', '#FFA500',
         row(`Approach + hold ${key('interact')}`, 'Enter car / mount horse') +
         row(key('interact'), 'Exit car / dismount') +
         row('WASD / MOUSE', 'Steer vehicle') +
         row('RMB (on horse)', 'Cast lasso at NPCs or players') +
-        `<div style="margin-top:8px;color:#aaa;font-size:12px;">Cars earn heat — horses let you lasso targets!</div>`,
+        `<div style="margin-top:8px;color:#aaa;font-size:12px;">Cars are playful detours, and horses add a wrangling mini-adventure.</div>`,
+      ) +
+      section('The Zoo', '#FFA032',
+        `<div style="margin-bottom:8px;">The Zoo is in the northeast corner of the city (look for the orange "Z" on your minimap).</div>` +
+        `<div style="margin-bottom:8px;"><strong>Animals:</strong> Elephant (50 coins), Giraffe (40 coins), Monkey (35 coins), Penguins (30 coins each).</div>` +
+        `<div style="margin-bottom:8px;"><strong>Tip:</strong> Drop rats near the elephant to spook it! Each animal has a cooldown, so fly around between hits.</div>` +
+        `<div style="margin-bottom:8px;"><strong>Missions:</strong> Complete "Zoo Loop" and "Safari Stroll" for big rewards.</div>`,
       ) +
       section('Pro Tips', '#9B59B6',
-        `<div style="margin-bottom:6px;">- Aim for hotspots for bonus score windows.</div>` +
-        `<div style="margin-bottom:6px;">- Bank before risky low-altitude passes.</div>` +
+        `<div style="margin-bottom:6px;">- Drift through rings and thermals to keep momentum without rushing.</div>` +
+        `<div style="margin-bottom:6px;">- Bank before low rooftop passes if you are carrying a lot of coins.</div>` +
         `<div style="margin-bottom:6px;">- Rebind keys in Settings -> Controls anytime.</div>` +
-        `<div style="margin-bottom:6px;">- Use combos plus timely banking for fastest progression.</div>`,
+        `<div style="margin-bottom:6px;">- Mix exploration, collectibles, and banking for steady progression.</div>`,
       );
     panel.appendChild(content);
 

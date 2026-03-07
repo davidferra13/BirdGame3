@@ -1,6 +1,5 @@
 import * as THREE from 'three';
 import { clone as cloneSkeleton } from 'three/examples/jsm/utils/SkeletonUtils.js';
-import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
 import { clamp, lerp } from '../utils/MathUtils';
 import { AssetLoader } from '../systems/AssetLoader';
 import { createToonMaterial, convertToToon } from '../rendering/ToonUtils';
@@ -18,10 +17,10 @@ const ANIM_IDLE  = ['idle', 'rest', 'standing'];
 const ANIM_DIVE  = ['dive', 'diving', 'swoop'];
 const ANIM_WALK  = ['walk', 'walking', 'ground'];
 const LEG_SIZE_SCALE = 1 / 3;
-const LEG_MODEL_PATH = '/models/characters/bird/legs/NewLeg1.obj';
+const LEG_MODEL_PATH = '/models/characters/bird/legs/leg.glb';
 const LEG_TEXTURE_PATH = '/models/characters/bird/legs/2k_mercury.jpg';
 const HUGE_LEG_SCALE = 0.24;
-const HUGE_LEG_SIDE_OFFSET = 0.34;
+const HUGE_LEG_SIDE_OFFSET = 0.20;
 const HUGE_LEG_FORWARD_OFFSET = 0.28;
 
 let _legTemplatePromise: Promise<THREE.Group | null> | null = null;
@@ -298,9 +297,12 @@ export function animateWings(
       if (anims) {
         if (grounded && anims.walk) {
           fadeToAction(anims, 'walk');
-        } else if (!grounded && speed > 20 && anims.fly) {
+        } else if (grounded) {
+          // No walk clip — freeze wings by stopping all actions
+          stopAllActions(anims);
+        } else if (speed > 20 && anims.fly) {
           fadeToAction(anims, 'fly');
-        } else if (!grounded && anims.glide) {
+        } else if (anims.glide) {
           fadeToAction(anims, 'glide');
         } else if (anims.fly) {
           fadeToAction(anims, 'fly');
@@ -332,49 +334,47 @@ export function animateWings(
 function loadLegTemplate(): Promise<THREE.Group | null> {
   if (_legTemplatePromise) return _legTemplatePromise;
 
-  _legTemplatePromise = new Promise((resolve) => {
-    const loader = new OBJLoader();
-    loader.load(
-      LEG_MODEL_PATH,
-      (obj) => {
-        const template = new THREE.Group();
-        template.name = 'legAnatomyTemplate';
-        template.add(obj);
+  _legTemplatePromise = (async (): Promise<THREE.Group | null> => {
+    try {
+      const model = await AssetLoader.getInstance().loadModel(LEG_MODEL_PATH, false);
 
-        if (!_legTexture) {
-          try {
-            _legTexture = new THREE.TextureLoader().load(LEG_TEXTURE_PATH);
-            _legTexture.colorSpace = THREE.SRGBColorSpace;
-          } catch {
-            _legTexture = null;
-          }
+      const template = new THREE.Group();
+      template.name = 'legAnatomyTemplate';
+      template.add(model);
+
+      if (!_legTexture) {
+        try {
+          _legTexture = new THREE.TextureLoader().load(LEG_TEXTURE_PATH);
+          _legTexture.colorSpace = THREE.SRGBColorSpace;
+        } catch {
+          _legTexture = null;
         }
+      }
 
-        obj.traverse((node) => {
-          if (!(node instanceof THREE.Mesh)) return;
-          node.castShadow = true;
-          node.receiveShadow = true;
-          node.geometry.computeVertexNormals();
-          node.material = createToonMaterial(0xffc14d, {
-            map: _legTexture ?? undefined,
-          });
+      template.traverse((node) => {
+        if (!(node instanceof THREE.Mesh)) return;
+        node.castShadow = true;
+        node.receiveShadow = true;
+        node.geometry.computeVertexNormals();
+        node.material = createToonMaterial(0xffc14d, {
+          map: _legTexture ?? undefined,
         });
+      });
 
-        // Recenter and pin the top of the leg at local y=0 so it can hang from bird belly.
-        const box = new THREE.Box3().setFromObject(template);
-        const center = new THREE.Vector3();
-        const size = new THREE.Vector3();
-        box.getCenter(center);
-        box.getSize(size);
-        obj.position.sub(center);
-        obj.position.y -= size.y * 0.5;
+      // Recenter and pin the top of the leg at local y=0 so it can hang from bird belly.
+      const box = new THREE.Box3().setFromObject(template);
+      const center = new THREE.Vector3();
+      const size = new THREE.Vector3();
+      box.getCenter(center);
+      box.getSize(size);
+      model.position.sub(center);
+      model.position.y -= size.y * 0.5;
 
-        resolve(template);
-      },
-      undefined,
-      () => resolve(null),
-    );
-  });
+      return template;
+    } catch {
+      return null;
+    }
+  })();
 
   return _legTemplatePromise;
 }
@@ -436,7 +436,7 @@ function addRidiculousLegRig(bird: THREE.Group, modelType: BirdModelType): void 
   const makeLeg = (side: -1 | 1): THREE.Group => {
     const leg = new THREE.Group();
     leg.name = side < 0 ? 'legLeft' : 'legRight';
-    leg.position.x = side * HUGE_LEG_SIDE_OFFSET;
+    leg.position.x = -side * HUGE_LEG_SIDE_OFFSET;
 
     const upper = new THREE.Mesh(
       new THREE.CylinderGeometry(0.04, 0.05, 0.5, 8),
@@ -470,6 +470,14 @@ function addRidiculousLegRig(bird: THREE.Group, modelType: BirdModelType): void 
     return leg;
   };
 
+  // Pelvis: a small box that bridges the gap between the two legs
+  const pelvis = new THREE.Mesh(
+    new THREE.BoxGeometry(HUGE_LEG_SIDE_OFFSET * 2 + 0.08, 0.1, 0.16),
+    createToonMaterial(legColor),
+  );
+  pelvis.name = 'pelvis';
+  rig.add(pelvis);
+
   rig.add(makeLeg(-1));
   rig.add(makeLeg(1));
   bird.add(rig);
@@ -498,7 +506,7 @@ function animateRidiculousLegs(
 
   const modelType = (rig.userData.modelType as BirdModelType | undefined) ?? 'procedural';
   // legBaseY = hip attachment point in bird-local space (body sphere bottom ≈ -0.25 for procedural)
-  const legBaseY = modelType === 'glb' ? -0.20 : -0.25;
+  const legBaseY = modelType === 'glb' ? -0.06 : -0.10;
   rig.position.y = legBaseY - (1 - extension) * 0.08;
   rig.scale.set(
     LEG_SIZE_SCALE,
@@ -616,13 +624,24 @@ export function updateBirdColor(bird: THREE.Group, color: number): void {
 
 let _currentAction: string | undefined;
 
+function stopAllActions(
+  anims: Record<string, THREE.AnimationAction>,
+  duration = 0.3,
+): void {
+  if (_currentAction === 'none') return;
+  if (_currentAction && anims[_currentAction]) {
+    anims[_currentAction].fadeOut(duration);
+  }
+  _currentAction = 'none';
+}
+
 function fadeToAction(
   anims: Record<string, THREE.AnimationAction>,
   name: string,
   duration = 0.3,
 ): void {
   if (_currentAction === name) return;
-  const prev = _currentAction ? anims[_currentAction] : undefined;
+  const prev = (_currentAction && _currentAction !== 'none') ? anims[_currentAction] : undefined;
   const next = anims[name];
   if (!next) return;
 

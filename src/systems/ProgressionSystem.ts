@@ -10,6 +10,8 @@ export interface PlayerStats {
   totalPoliceHit: number;
   totalChefsHit: number;
   totalTreemenHit: number;
+  totalZooHits: number;
+  totalDistrictsDiscovered: number;
   totalTimesGrounded: number;
   highestHeat: number;
   highestStreak: number;
@@ -26,6 +28,19 @@ export interface Challenge {
   current: number;
   reward: { coins?: number; xp?: number; feathers?: number; worms?: number; goldenEggs?: number };
   completed: boolean;
+  claimed: boolean;
+}
+
+export interface ChallengeRewardPayout {
+  challengeId: string;
+  description: string;
+  reward: {
+    coins: number;
+    xp: number;
+    feathers: number;
+    worms: number;
+    goldenEggs: number;
+  };
 }
 
 export class ProgressionSystem {
@@ -46,6 +61,8 @@ export class ProgressionSystem {
     totalPoliceHit: 0,
     totalChefsHit: 0,
     totalTreemenHit: 0,
+    totalZooHits: 0,
+    totalDistrictsDiscovered: 0,
     totalTimesGrounded: 0,
     highestHeat: 0,
     highestStreak: 0,
@@ -177,6 +194,17 @@ export class ProgressionSystem {
     this.updateChallengeProgress('bankSingle', amount);
   }
 
+  recordZooHit(): void {
+    this.stats.totalZooHits++;
+    this.updateChallengeProgress('zooHits', this.stats.totalZooHits);
+  }
+
+  recordDistrictDiscovery(count: number): void {
+    if (count <= this.stats.totalDistrictsDiscovered) return;
+    this.stats.totalDistrictsDiscovered = count;
+    this.updateChallengeProgress('districts', this.stats.totalDistrictsDiscovered);
+  }
+
   recordDistance(dist: number): void {
     this.stats.totalDistanceFlown += dist;
   }
@@ -203,6 +231,7 @@ export class ProgressionSystem {
         current: 0,
         reward: { coins: 150, xp: 50, worms: 5 },
         completed: false,
+        claimed: false,
       },
       {
         id: 'bankSingle_200',
@@ -211,6 +240,7 @@ export class ProgressionSystem {
         current: 0,
         reward: { coins: 100, xp: 50, worms: 3 },
         completed: false,
+        claimed: false,
       },
       {
         id: 'heat_20',
@@ -219,6 +249,25 @@ export class ProgressionSystem {
         current: 0,
         reward: { xp: 75, worms: 8 },
         completed: false,
+        claimed: false,
+      },
+      {
+        id: 'zooHits_5',
+        description: 'Visit 5 zoo animals with cheeky drops',
+        target: 5,
+        current: 0,
+        reward: { coins: 200, xp: 80, worms: 5 },
+        completed: false,
+        claimed: false,
+      },
+      {
+        id: 'districts_5',
+        description: 'Discover 5 city districts',
+        target: 5,
+        current: 0,
+        reward: { coins: 180, xp: 90, worms: 4 },
+        completed: false,
+        claimed: false,
       },
     ];
   }
@@ -232,6 +281,7 @@ export class ProgressionSystem {
         current: 0,
         reward: { coins: 500, xp: 200, feathers: 3, goldenEggs: 1 },
         completed: false,
+        claimed: false,
       },
       {
         id: 'hits_500',
@@ -240,6 +290,7 @@ export class ProgressionSystem {
         current: 0,
         reward: { coins: 300, xp: 250, feathers: 5, goldenEggs: 1 },
         completed: false,
+        claimed: false,
       },
       {
         id: 'heat_35',
@@ -248,6 +299,7 @@ export class ProgressionSystem {
         current: 0,
         reward: { feathers: 8, goldenEggs: 1 },
         completed: false,
+        claimed: false,
       },
       {
         id: 'business_15',
@@ -256,6 +308,7 @@ export class ProgressionSystem {
         current: 0,
         reward: { coins: 200, xp: 150, worms: 10 },
         completed: false,
+        claimed: false,
       },
       {
         id: 'performers_5',
@@ -264,6 +317,7 @@ export class ProgressionSystem {
         current: 0,
         reward: { coins: 400, xp: 300, feathers: 10, goldenEggs: 1 },
         completed: false,
+        claimed: false,
       },
       {
         id: 'bankSingle_1000',
@@ -272,12 +326,36 @@ export class ProgressionSystem {
         current: 0,
         reward: { coins: 800, xp: 400, feathers: 15, goldenEggs: 2 },
         completed: false,
+        claimed: false,
+      },
+      {
+        id: 'zooHits_20',
+        description: 'Visit 20 zoo animals with cheeky drops',
+        target: 20,
+        current: 0,
+        reward: { coins: 500, xp: 250, feathers: 8, goldenEggs: 1 },
+        completed: false,
+        claimed: false,
+      },
+      {
+        id: 'districts_15',
+        description: 'Discover all 15 city districts',
+        target: 15,
+        current: 0,
+        reward: { coins: 650, xp: 300, feathers: 6, goldenEggs: 1 },
+        completed: false,
+        claimed: false,
       },
     ];
   }
 
   collectReward(challenge: Challenge): { coins: number; xp: number; feathers: number; worms: number; goldenEggs: number } {
-    if (!challenge.completed) return { coins: 0, xp: 0, feathers: 0, worms: 0, goldenEggs: 0 };
+    if (!challenge.completed || challenge.claimed) {
+      return { coins: 0, xp: 0, feathers: 0, worms: 0, goldenEggs: 0 };
+    }
+
+    challenge.claimed = true;
+
     const r = challenge.reward;
     const result = {
       coins: r.coins || 0,
@@ -291,6 +369,23 @@ export class ProgressionSystem {
     if (result.worms > 0) this.worms += result.worms;
     if (result.goldenEggs > 0) this.goldenEggs += result.goldenEggs;
     return result;
+  }
+
+  collectCompletedRewards(): ChallengeRewardPayout[] {
+    const payouts: ChallengeRewardPayout[] = [];
+    const allChallenges = [...this.dailyChallenges, ...this.weeklyChallenges];
+
+    for (const challenge of allChallenges) {
+      if (!challenge.completed || challenge.claimed) continue;
+
+      payouts.push({
+        challengeId: challenge.id,
+        description: challenge.description,
+        reward: this.collectReward(challenge),
+      });
+    }
+
+    return payouts;
   }
 
   // ============================================================================
@@ -311,10 +406,10 @@ export class ProgressionSystem {
     const tierMap: Record<string, 'double' | 'triple' | 'multi' | 'mega' | 'ultra' | 'legendary'> = {
       'DOUBLE!': 'double',
       'TRIPLE!': 'triple',
-      'MULTI KILL!': 'multi',
-      'MEGA COMBO!': 'mega',
-      'ULTRA COMBO!': 'ultra',
-      'LEGENDARY!!!': 'legendary',
+      'SWIFT SWOOP!': 'multi',
+      'BREEZY FLOW!': 'mega',
+      'SKY DANCE!': 'ultra',
+      'GOLDEN GLIDE!': 'legendary',
     };
     if (tierMap[tier]) {
       this.sessionTracker.recordCombo(tierMap[tier]);

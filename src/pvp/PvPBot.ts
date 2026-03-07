@@ -47,6 +47,9 @@ export class PvPBot {
   private statuePosition: THREE.Vector3 | null = null;
   private poopCooldown = 0;
 
+  // Sprint-specific
+  private sprintPlatform: THREE.Vector3 | null = null;
+
   constructor(player: PvPPlayer, scene: THREE.Scene) {
     this.player = player;
 
@@ -83,6 +86,11 @@ export class PvPBot {
   updateModeData(data: any, players: PvPPlayer[]): void {
     this.modeData = data;
     this.otherPlayers = players.filter(p => p.id !== this.player.id);
+
+    // Keep sprint platform in sync (assignments can change mid-round if players join/leave)
+    if (this.modeId === 'statue-sprint') {
+      this.sprintPlatform = this.resolveSprintPlatform(data);
+    }
   }
 
   setMode(modeId: string, modeData: any): void {
@@ -103,6 +111,10 @@ export class PvPBot {
         modeData.statuePosition.z,
       );
     }
+
+    if (modeId === 'statue-sprint') {
+      this.sprintPlatform = this.resolveSprintPlatform(modeData);
+    }
   }
 
   update(dt: number): void {
@@ -118,6 +130,9 @@ export class PvPBot {
         break;
       case 'poop-cover':
         this.updateCoverBehavior(dt);
+        break;
+      case 'statue-sprint':
+        this.updateSprintBehavior(dt);
         break;
       default:
         this.updateDefaultBehavior(dt);
@@ -256,6 +271,51 @@ export class PvPBot {
         }
       }
     }
+  }
+
+  private updateSprintBehavior(dt: number): void {
+    if (!this.sprintPlatform) {
+      this.updateDefaultBehavior(dt);
+      return;
+    }
+
+    // Circle above assigned platform at bombing altitude, phase-offset by player id
+    const time = Date.now() * 0.001;
+    const idNum = parseInt(this.player.id.replace(/\D/g, '')) || 0;
+    const circleRadius = 12 + Math.sin(time * 0.25 + idNum) * 4;
+    const angle = time * 0.75 + idNum * 2.1;
+    this.waypoint.set(
+      this.sprintPlatform.x + Math.cos(angle) * circleRadius,
+      this.sprintPlatform.y + 18 + Math.sin(time * 0.4 + idNum) * 4,
+      this.sprintPlatform.z + Math.sin(angle) * circleRadius,
+    );
+    this.speed = FLIGHT.BASE_SPEED * PVP.BOT_SPEED_FACTOR;
+    this.flyToward(this.waypoint, dt);
+
+    // Simulate poop hits on their platform
+    if (this.poopCooldown <= 0) {
+      this.poopCooldown = 1.2 + Math.random() * 1.8;
+      const dist = this.player.position.distanceTo(this.sprintPlatform);
+      if (dist < PVP.SPRINT_PLATFORM_RADIUS * 2 && Math.random() < PVP.BOT_ACCURACY) {
+        if (this.eventCallback) {
+          this.eventCallback('platform-hit', {
+            playerId: this.player.id,
+            platformIndex: this.modeData?.playerAssignments?.[this.player.id] ?? 0,
+            hitPosition: this.player.position.clone(),
+          });
+        }
+      }
+    }
+  }
+
+  /** Resolve this bot's assigned platform position from modeData. */
+  private resolveSprintPlatform(modeData: any): THREE.Vector3 | null {
+    const assignments: Record<string, number> = modeData?.playerAssignments ?? {};
+    const positions: Array<{ x: number; y: number; z: number }> = modeData?.platformPositions ?? [];
+    const idx = assignments[this.player.id];
+    if (idx === undefined || !positions[idx]) return null;
+    const p = positions[idx];
+    return new THREE.Vector3(p.x, p.y, p.z);
   }
 
   private flyToward(target: THREE.Vector3, dt: number): void {

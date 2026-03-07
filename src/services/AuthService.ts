@@ -209,7 +209,9 @@ export async function signUp(data: SignUpData): Promise<AuthResult> {
 
 /**
  * Sign in existing user with email and password.
- * Uses direct fetch to Supabase Auth API to avoid internal client deadlocks.
+ * Uses supabase.auth.signInWithPassword() so the session is reliably persisted
+ * to localStorage by Supabase's own storage layer. The no-op lock in SupabaseClient.ts
+ * prevents the navigator.locks deadlock that previously required a direct fetch workaround.
  */
 export async function signIn(data: SignInData): Promise<AuthResult> {
   try {
@@ -219,92 +221,68 @@ export async function signIn(data: SignInData): Promise<AuthResult> {
       return { success: false, error: 'No account found with that username. Try your email instead.' };
     }
 
-    // Direct fetch to Supabase Auth API — bypasses the JS client's internal
-    // initialization/lock machinery which can deadlock after a timed-out getSession().
-    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-    const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+    console.log('[SIGNIN] Signing in with email:', email);
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000);
+    let authData: { user: { id: string } | null; session: { access_token: string } | null } | null = null;
+    let authError: { message: string } | null = null;
 
-    let tokenResponse: Response;
     try {
-      tokenResponse = await fetch(
-        `${supabaseUrl}/auth/v1/token?grant_type=password`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'apikey': supabaseKey,
-          },
-          body: JSON.stringify({ email, password: data.password }),
-          signal: controller.signal,
-        },
-      );
-    } catch (fetchError: any) {
-      clearTimeout(timeoutId);
-      if (fetchError.name === 'AbortError') {
-        return { success: false, error: 'Sign in request timed out. Please check your connection and try again.' };
-      }
-      return { success: false, error: 'Network error. Please check your connection.' };
-    }
-    clearTimeout(timeoutId);
-
-    const tokenData = await tokenResponse.json();
-
-    if (!tokenResponse.ok) {
-      return { success: false, error: normalizeAuthError(tokenData.msg || tokenData.error_description || 'Sign in failed.') };
-    }
-
-    console.log('[SIGNIN] Auth token received, setting session...');
-
-    // Set session on the Supabase client (with timeout — this can deadlock).
-    // Fire-and-forget with a 3s grace period; don't let it block sign-in.
-    try {
-      await Promise.race([
-        supabase.auth.setSession({
-          access_token: tokenData.access_token,
-          refresh_token: tokenData.refresh_token,
-        }),
-        new Promise((resolve) => setTimeout(resolve, 3000)),
+      const result = await Promise.race([
+        supabase.auth.signInWithPassword({ email, password: data.password }),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('Sign in request timed out. Please check your connection and try again.')), 10000)
+        ),
       ]);
-    } catch (setError) {
-      console.warn('setSession failed (non-fatal):', setError);
+      authData = result.data;
+      authError = result.error;
+    } catch (e: any) {
+      return { success: false, error: e.message || 'Network error. Please check your connection.' };
     }
 
-    const userId = tokenData.user?.id;
-    if (!userId) {
+    if (authError) {
+      return { success: false, error: normalizeAuthError(authError.message) };
+    }
+
+    if (!authData?.user) {
       return { success: false, error: 'Login succeeded but no user ID returned.' };
     }
 
-    console.log('[SIGNIN] Loading profile for user:', userId);
+    const userId = authData.user.id;
+    const accessToken = authData.session?.access_token;
 
-    // Fetch profile with direct REST call to avoid Supabase client deadlock
+    console.log('[SIGNIN] Auth complete, loading profile for user:', userId);
+
+    // Fetch profile — try direct REST call first (fastest), fall back to Supabase client
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+    const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
     let profile: Profile | null = null;
-    try {
-      const profileController = new AbortController();
-      const profileTimeoutId = setTimeout(() => profileController.abort(), 5000);
 
-      const profileResponse = await fetch(
-        `${supabaseUrl}/rest/v1/profiles?id=eq.${userId}&select=*`,
-        {
-          headers: {
-            'apikey': supabaseKey,
-            'Authorization': `Bearer ${tokenData.access_token}`,
+    if (accessToken) {
+      try {
+        const profileController = new AbortController();
+        const profileTimeoutId = setTimeout(() => profileController.abort(), 5000);
+
+        const profileResponse = await fetch(
+          `${supabaseUrl}/rest/v1/profiles?id=eq.${userId}&select=*`,
+          {
+            headers: {
+              'apikey': supabaseKey,
+              'Authorization': `Bearer ${accessToken}`,
+            },
+            signal: profileController.signal,
           },
-          signal: profileController.signal,
-        },
-      );
-      clearTimeout(profileTimeoutId);
+        );
+        clearTimeout(profileTimeoutId);
 
-      if (profileResponse.ok) {
-        const profiles = await profileResponse.json();
-        if (profiles.length > 0) {
-          profile = profiles[0];
+        if (profileResponse.ok) {
+          const profiles = await profileResponse.json();
+          if (profiles.length > 0) {
+            profile = profiles[0];
+          }
         }
+      } catch (profileError) {
+        console.warn('Direct profile fetch failed:', profileError);
       }
-    } catch (profileError) {
-      console.warn('Direct profile fetch failed:', profileError);
     }
 
     // Fallback to Supabase client if direct fetch didn't work

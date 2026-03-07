@@ -23,8 +23,14 @@ export class ScoreSystem {
 
   // Combo bonus (set by ComboSystem)
   comboBonus = 0;
+  coinGainMultiplier = 1;
+  heatGainMultiplier = 1;
 
-  onHitWithValues(coinValue: number, _heatValue: number, npcType?: NPCType): void {
+  // District bonus (set by Game based on current district)
+  districtBonus = 0;
+  districtBonusName = '';
+
+  onHitWithValues(coinValue: number, heatValue: number, npcType?: NPCType): void {
     this.streak++;
     this.multiplier = Math.min(
       1 + this.streak * 0.25,
@@ -32,14 +38,22 @@ export class ScoreSystem {
     );
     this.streakTimer = SCORE.STREAK_TIMEOUT;
 
-    // Apply combo bonus on top of multiplier
-    const totalMultiplier = this.multiplier * (1 + this.comboBonus);
-    const points = Math.floor(coinValue * totalMultiplier);
+    const heatGain = clamp(heatValue * this.heatGainMultiplier, 0, SCORE.MAX_HEAT);
+    this.heat = clamp(this.heat + heatGain, 0, SCORE.MAX_HEAT);
+
+    const heatRewardBonus = this.heatFraction * SCORE.HEAT_REWARD_MULTIPLIER_AT_MAX;
+    const totalMultiplier =
+      this.multiplier *
+      (1 + this.comboBonus) *
+      this.coinGainMultiplier *
+      (1 + heatRewardBonus) *
+      (1 + this.districtBonus);
+    const points = coinValue > 0 ? Math.max(1, Math.floor(coinValue * totalMultiplier)) : 0;
     this.coins += points;
 
     this.lastHitPoints = points;
     this.lastHitMultiplier = totalMultiplier;
-    this.lastHitHeat = 0;
+    this.lastHitHeat = heatGain;
     this.lastHitNPCType = npcType || null;
   }
 
@@ -55,6 +69,16 @@ export class ScoreSystem {
         this.multiplier = 1;
       }
     }
+
+    if (!this.inHotspot && this.heat > 0) {
+      this.heat = Math.max(0, this.heat - SCORE.HEAT_DECAY_PER_SECOND * dt);
+      if (this.heat < 0.01) {
+        this.heat = 0;
+      }
+    }
+
+    // Update wanted status based on heat threshold
+    this.isWanted = this.heat >= SCORE.WANTED_THRESHOLD;
   }
 
   bank(): number {
@@ -65,6 +89,8 @@ export class ScoreSystem {
       this.coins = 0;
       this.streak = 0;
       this.multiplier = 1;
+      this.heat = 0;
+      this.isWanted = false;
     }
     // Also bank any session worms (worms are never lost, just accumulated)
     if (this.worms > 0) {
@@ -79,11 +105,14 @@ export class ScoreSystem {
     this.coins -= lost;
     this.streak = 0;
     this.multiplier = 1;
+    this.heat = 0;
+    this.isWanted = false;
     return lost;
   }
 
   get heatFraction(): number {
-    return 0;
+    if (SCORE.MAX_HEAT <= 0) return 0;
+    return clamp(this.heat / SCORE.MAX_HEAT, 0, 1);
   }
 
   get totalCoins(): number {

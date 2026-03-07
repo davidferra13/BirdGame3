@@ -35,6 +35,7 @@ export class StatsPanel {
       ['Level', String(level)],
       ['Total XP', String(xp)],
       ['Total NPC Hits', String(stats.totalNPCHits)],
+      ['Districts Discovered', String(stats.totalDistrictsDiscovered)],
       ['Times Grounded', String(stats.totalTimesGrounded)],
       ['Highest Heat', String(Math.round(stats.highestHeat))],
       ['Highest Streak', String(stats.highestStreak)],

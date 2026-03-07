@@ -7,6 +7,7 @@ import { ProgressionSystem } from '../systems/ProgressionSystem';
 import { AbilityManager } from '../systems/abilities/AbilityManager';
 import { City } from '../world/City';
 import { DEFAULT_BINDINGS, type KeyBindings } from '../core/InputManager';
+import { SCORE } from '../utils/Constants';
 import { bindingToDisplayName } from './KeyDisplay';
 
 export class HUD {
@@ -14,6 +15,8 @@ export class HUD {
 
   private multiplierEl: HTMLElement;
   private stateEl: HTMLElement;
+  private heatEl: HTMLElement;
+  private heatBarFill: HTMLElement;
 
   private coinsEl: HTMLElement;
   private bankedEl: HTMLElement;
@@ -59,6 +62,15 @@ export class HUD {
   // Dive bomb indicator
   private diveBombIndicator: HTMLElement;
 
+  // Bombing crosshair: tiny screen-center '+' aiming dot + ETA readout
+  private bombingCrosshair: HTMLElement;
+  private bombingEta: HTMLElement;
+  private _prevBombing = false;
+
+  // Firearm crosshair (small centered dot + chevron for gun aiming)
+  private gunCrosshair: HTMLElement;
+  private _prevGunVisible = false;
+
   // Ability charge meter
   private abilityLabel: HTMLElement;
   private abilityChargeFill: HTMLElement;
@@ -77,6 +89,9 @@ export class HUD {
   // Murmuration tag display
   private murmTagEl: HTMLElement;
 
+  // Nearby players indicator
+  private nearbyPlayersEl: HTMLElement;
+
   // Driving HUD
   private drivingPrompt: HTMLElement;
   private speedometerEl: HTMLElement;
@@ -87,6 +102,8 @@ export class HUD {
   private _prevMultiplier = '';
   private _prevCoins = '';
   private _prevBanked = '';
+  private _prevHeatText = '';
+  private _prevHeatWidth = '';
   private _prevLevel = '';
   private _prevXp = '';
   private _prevXpWidth = '';
@@ -129,6 +146,14 @@ export class HUD {
 
     this.altSpeedEl = this.div(`font-size:${Math.round(9 * scale)}px;color:rgba(255,255,255,0.7);text-shadow:${stroke};margin-top:3px;`);
     topLeft.appendChild(this.altSpeedEl);
+
+    this.heatEl = this.div(`font-size:${Math.round(10 * scale)}px;color:#ffbb66;text-shadow:${stroke};margin-top:6px;display:none;`);
+    topLeft.appendChild(this.heatEl);
+
+    const heatBarOuter = this.div(`width:${Math.round(120 * scale)}px;height:${Math.round(6 * scale)}px;background:rgba(0,0,0,0.35);border-radius:999px;overflow:hidden;margin-top:3px;display:none;`);
+    this.heatBarFill = this.div('height:100%;width:0%;background:linear-gradient(90deg,#ffcc77,#ff9966);border-radius:999px;transition:width 0.2s;');
+    heatBarOuter.appendChild(this.heatBarFill);
+    topLeft.appendChild(heatBarOuter);
 
     this.container.appendChild(topLeft);
 
@@ -181,7 +206,7 @@ export class HUD {
         <circle id="bank-ring" cx="${svgSize / 2}" cy="${svgSize / 2}" r="${r}" fill="none" stroke="#44ffaa" stroke-width="4" stroke-dasharray="${circ}" stroke-dashoffset="${circ}" stroke-linecap="round"/>
       </svg>`;
     const bankLabel = this.div('position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:11px;font-weight:bold;color:#44ffaa;text-shadow:1px 1px 3px rgba(0,0,0,0.8);');
-    bankLabel.textContent = 'BANKING';
+    bankLabel.textContent = 'SETTLING';
     this.bankChannelEl.appendChild(bankLabel);
     this.container.appendChild(this.bankChannelEl);
     this.bankChannelFill = this.bankChannelEl.querySelector('#bank-ring')!;
@@ -205,7 +230,7 @@ export class HUD {
       `font-size:${Math.round(12 * scale)}px;font-weight:bold;color:#ff8800;letter-spacing:2px;` +
       `text-shadow:${stroke},0 0 8px #ff6600;display:none;`,
     );
-    this.hotspotIndicator.textContent = 'HOTSPOT ZONE';
+    this.hotspotIndicator.textContent = 'BONUS BREEZE';
     this.container.appendChild(this.hotspotIndicator);
 
     // Boost indicator
@@ -225,6 +250,56 @@ export class HUD {
     );
     this.diveBombIndicator.textContent = 'DIVE BOMB!';
     this.container.appendChild(this.diveBombIndicator);
+
+    // Bombing crosshair: tiny static '+' at screen center + ETA below
+    this.bombingCrosshair = this.div(
+      'position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);' +
+      'width:16px;height:16px;display:none;pointer-events:none;',
+    );
+    // Horizontal bar
+    const bH = this.div('position:absolute;top:50%;left:0;width:100%;height:1px;background:rgba(255,221,170,0.8);transform:translateY(-50%);');
+    // Vertical bar
+    const bV = this.div('position:absolute;left:50%;top:0;width:1px;height:100%;background:rgba(255,221,170,0.8);transform:translateX(-50%);');
+    // Center dot
+    const bDot = this.div('position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:3px;height:3px;border-radius:50%;background:rgba(255,221,170,1);');
+    this.bombingCrosshair.appendChild(bH);
+    this.bombingCrosshair.appendChild(bV);
+    this.bombingCrosshair.appendChild(bDot);
+    this.container.appendChild(this.bombingCrosshair);
+
+    // ETA readout below crosshair
+    this.bombingEta = this.div(
+      'position:absolute;top:calc(50% + 14px);left:50%;transform:translateX(-50%);' +
+      'font-size:10px;font-weight:bold;color:rgba(255,221,170,0.9);white-space:nowrap;' +
+      'text-shadow:-1px -1px 0 rgba(0,0,0,0.8),1px -1px 0 rgba(0,0,0,0.8),-1px 1px 0 rgba(0,0,0,0.8),1px 1px 0 rgba(0,0,0,0.8);' +
+      'display:none;pointer-events:none;letter-spacing:1px;',
+    );
+    this.container.appendChild(this.bombingEta);
+
+    // Firearm crosshair (centered small crosshair when gun is equipped)
+    this.gunCrosshair = this.div(
+      'position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);' +
+      'width:24px;height:24px;display:none;pointer-events:none;',
+    );
+    // Center dot
+    const gunDot = this.div(
+      'position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);' +
+      'width:3px;height:3px;background:rgba(255,80,60,0.9);border-radius:50%;' +
+      'box-shadow:0 0 4px rgba(255,80,60,0.6);',
+    );
+    this.gunCrosshair.appendChild(gunDot);
+    // 4 thin lines radiating outward with a gap around the dot
+    const gunTickH = 'position:absolute;width:6px;height:1px;background:rgba(255,80,60,0.7);';
+    const gunTickV = 'position:absolute;height:6px;width:1px;background:rgba(255,80,60,0.7);';
+    const gTickL = this.div(gunTickH + 'top:50%;left:0;transform:translateY(-50%);');
+    const gTickR = this.div(gunTickH + 'top:50%;right:0;transform:translateY(-50%);');
+    const gTickT = this.div(gunTickV + 'left:50%;top:0;transform:translateX(-50%);');
+    const gTickB = this.div(gunTickV + 'left:50%;bottom:0;transform:translateX(-50%);');
+    this.gunCrosshair.appendChild(gTickL);
+    this.gunCrosshair.appendChild(gTickR);
+    this.gunCrosshair.appendChild(gTickT);
+    this.gunCrosshair.appendChild(gTickB);
+    this.container.appendChild(this.gunCrosshair);
 
     // Challenge notification
     this.challengeNotif = this.div(
@@ -317,6 +392,14 @@ export class HUD {
     );
     topRight.appendChild(this.murmTagEl);
 
+    // Nearby players indicator (bottom-right area)
+    this.nearbyPlayersEl = this.div(
+      `position:absolute;bottom:${Math.round(60 * scale)}px;left:${Math.round(10 * scale)}px;` +
+      `font-size:${Math.round(11 * scale)}px;color:rgba(255,255,255,0.7);text-shadow:${stroke};` +
+      `line-height:1.5;display:none;`,
+    );
+    this.container.appendChild(this.nearbyPlayersEl);
+
     // District indicator (compact, bottom-left, above cooldown â€” hidden on mobile by default in collapsible HUD)
     this.districtEl = this.div(
       `position:absolute;bottom:${Math.round(140 * scale)}px;left:${Math.round(10 * scale)}px;font-size:${Math.round(12 * scale)}px;font-weight:bold;color:rgba(255,255,255,0.85);text-shadow:${stroke};padding:4px 10px;border-radius:6px;`,
@@ -405,7 +488,13 @@ export class HUD {
     // State label â€” show WALKING when bird is on ground (unless in penalty GROUNDED state)
     const label = playerState.stateLabel;
     const isWalking = bird.controller.isGrounded && playerState.state === 'NORMAL';
-    const displayLabel = isWalking ? 'WALKING' : label;
+    const displayLabel = isWalking
+      ? 'WALKING'
+      : label === 'GROUNDED'
+        ? 'RESTING'
+        : label === 'RESPAWNING'
+          ? 'RETURNING'
+          : label;
     if (this._prevState !== displayLabel) {
       this._prevState = displayLabel;
       this.stateEl.textContent = displayLabel;
@@ -413,7 +502,7 @@ export class HUD {
     const stateColor = displayLabel === 'DRIVING' ? '#44ddff'
       : displayLabel === 'WALKING' ? '#88cc88'
       : label === 'SHIELDED' ? '#44ddff'
-      : (label === 'GROUNDED' || label === 'RESPAWNING') ? '#ff4444'
+      : (displayLabel === 'RESTING' || displayLabel === 'RETURNING') ? '#ff4444'
       : (label === 'SANCTUARY' || label === 'BANKING') ? '#44ffaa'
       : '#ffffff';
     if (this._prevStateColor !== stateColor) {
@@ -445,6 +534,25 @@ export class HUD {
       } else {
         this.bankedEl.style.display = 'none';
       }
+    }
+
+    const heatBonusPercent = Math.round(score.heatFraction * SCORE.HEAT_REWARD_MULTIPLIER_AT_MAX * 100);
+    const heatText = score.heat > 0 ? `HEAT ${Math.round(score.heat)}  BONUS +${heatBonusPercent}%` : '';
+    if (this._prevHeatText !== heatText) {
+      this._prevHeatText = heatText;
+      if (heatText) {
+        this.heatEl.textContent = heatText;
+        this.heatEl.style.display = 'block';
+        this.heatBarFill.parentElement!.style.display = 'block';
+      } else {
+        this.heatEl.style.display = 'none';
+        this.heatBarFill.parentElement!.style.display = 'none';
+      }
+    }
+    const heatWidth = `${score.heatFraction * 100}%`;
+    if (this._prevHeatWidth !== heatWidth) {
+      this._prevHeatWidth = heatWidth;
+      this.heatBarFill.style.width = heatWidth;
     }
 
     // Secondary currencies
@@ -482,11 +590,11 @@ export class HUD {
       this.groundedOverlay.style.display = 'block';
       this.respawnCountdown.style.display = 'block';
       const remaining = playerState.groundedTimeRemaining;
-      this.respawnCountdown.textContent = `GROUNDED ${remaining.toFixed(1)}s`;
+      this.respawnCountdown.textContent = `RESTING ${remaining.toFixed(1)}s`;
     } else if (playerState.state === 'RESPAWNING') {
       this.groundedOverlay.style.display = 'block';
       this.respawnCountdown.style.display = 'block';
-      this.respawnCountdown.textContent = 'RESPAWNING...';
+      this.respawnCountdown.textContent = 'RETURNING...';
     } else {
       this.groundedOverlay.style.display = 'none';
       this.respawnCountdown.style.display = 'none';
@@ -501,6 +609,25 @@ export class HUD {
     // Boost and Dive Bomb indicators
     this.boostIndicator.style.display = bird.controller.isBoosting ? 'block' : 'none';
     this.diveBombIndicator.style.display = bird.controller.isDiveBombing ? 'block' : 'none';
+
+    // Bomber mode: tiny crosshair + ETA (3D CCIP ring on the ground is the main aiming aid)
+    const isBombing = bird.controller.isBomberMode && !bird.controller.isGrounded;
+    if (this._prevBombing !== isBombing) {
+      this._prevBombing = isBombing;
+      this.bombingCrosshair.style.display = isBombing ? 'block' : 'none';
+      this.bombingEta.style.display = isBombing ? 'block' : 'none';
+    }
+    if (isBombing) {
+      const eta = poopManager.timeToImpact;
+      this.bombingEta.textContent = eta > 0.05 ? `${eta.toFixed(1)}s` : '';
+    }
+
+    // Firearm crosshair — visible when gun equipped, hidden during bomber mode (bombing reticle takes priority)
+    const gunVisible = bird.hasGun() && !isBombing;
+    if (this._prevGunVisible !== gunVisible) {
+      this._prevGunVisible = gunVisible;
+      this.gunCrosshair.style.display = gunVisible ? 'block' : 'none';
+    }
 
     // Alt/speed
     const alt = Math.round(bird.controller.position.y);
@@ -551,14 +678,21 @@ export class HUD {
     }
 
 
-    // District indicator
+    // District indicator with bonus
     if (city) {
       const district = city.getDistrict(bird.controller.position);
-      const districtName = district ? `DISTRICT: ${district.name}` : 'DISTRICT: Open Sky';
+      const bonusLabel = score.districtBonusName;
+      const districtName = district
+        ? bonusLabel
+          ? `DISTRICT: ${district.name}  [${bonusLabel}]`
+          : `DISTRICT: ${district.name}`
+        : 'DISTRICT: Open Sky';
       if (this._prevDistrict !== districtName) {
         this._prevDistrict = districtName;
         this.districtEl.textContent = districtName;
         this.districtEl.style.display = 'block';
+        // Highlight when there's a bonus
+        this.districtEl.style.color = bonusLabel ? '#ffd700' : 'rgba(255,255,255,0.7)';
       }
     }
 
@@ -566,14 +700,18 @@ export class HUD {
     let coreObjectiveText = '';
     if (progression.stats.totalBanks < 3) {
       if (score.coins <= 0) {
-        coreObjectiveText = 'Objective: Hit targets to earn coins.';
+        coreObjectiveText = 'Objective: Explore a little and gather some coins.';
       } else if (playerState.state === 'BANKING') {
-        coreObjectiveText = 'Objective: Hold steady to complete banking.';
+        coreObjectiveText = 'Objective: Hold steady and settle in.';
       } else if (score.coins >= 50) {
-        coreObjectiveText = `Objective: Bank now at the green beam (${bindingToDisplayName(this.bindings, 'interact')}).`;
+        coreObjectiveText = `Objective: Settle your coins at the green beam (${bindingToDisplayName(this.bindings, 'interact')}).`;
       } else {
-        coreObjectiveText = 'Objective: Build a streak, then bank safely.';
+        coreObjectiveText = 'Objective: Keep a gentle streak, then visit the Sanctuary.';
       }
+    } else if (city && progression.stats.totalDistrictsDiscovered < Math.min(5, city.districts.length)) {
+      coreObjectiveText =
+        `Objective: Glide into new districts for discovery rewards ` +
+        `(${progression.stats.totalDistrictsDiscovered}/${city.districts.length}).`;
     }
     if (this._prevCoreObjective !== coreObjectiveText) {
       this._prevCoreObjective = coreObjectiveText;
@@ -595,7 +733,7 @@ export class HUD {
   }
 
   showBankMessage(amount: number, xpGained: number): void {
-    this.bankMsgEl.textContent = `BANKED +${amount}  (+${xpGained} XP)`;
+    this.bankMsgEl.textContent = `SETTLED +${amount}  (+${xpGained} XP)`;
     this.bankMsgEl.style.color = '#44ffaa';
     this.bankMsgEl.style.textShadow = '0 0 15px #44ffaa,2px 2px 4px rgba(0,0,0,0.8)';
     this.bankMsgEl.style.display = 'block';
@@ -603,7 +741,7 @@ export class HUD {
   }
 
   showGroundedMessage(lost: number): void {
-    this.bankMsgEl.textContent = `GROUNDED! -${lost}`;
+    this.bankMsgEl.textContent = `ROUGH LANDING -${lost}`;
     this.bankMsgEl.style.color = '#ff4444';
     this.bankMsgEl.style.textShadow = '0 0 15px #ff0000,2px 2px 4px rgba(0,0,0,0.8)';
     this.bankMsgEl.style.display = 'block';
@@ -626,16 +764,16 @@ export class HUD {
     this.bankMsgTimer = Math.max(0.6, duration);
   }
 
-  showChallengeComplete(desc: string): void {
-    this.challengeNotif.textContent = `CHALLENGE: ${desc}`;
+  showChallengeComplete(desc: string, prefix: string = 'CHALLENGE'): void {
+    this.challengeNotif.textContent = `${prefix}: ${desc}`;
     this.challengeNotif.style.display = 'block';
     this.challengeTimer = 3.0;
   }
 
   /** Show pet protection warning â€” the wholesome easter egg */
-  showPetWarning(petType: 'cat' | 'dog', isBlocked: boolean): void {
-    const emoji = petType === 'cat' ? '\uD83D\uDC31' : '\uD83D\uDC36';
-    const name = petType === 'cat' ? 'kitty' : 'pup';
+  showPetWarning(petType: 'cat' | 'dog' | 'rat', isBlocked: boolean): void {
+    const emoji = petType === 'cat' ? '\uD83D\uDC31' : petType === 'rat' ? '\uD83D\uDC00' : '\uD83D\uDC36';
+    const name = petType === 'cat' ? 'kitty' : petType === 'rat' ? 'rat' : 'pup';
 
     if (isBlocked) {
       // Trying to drop from height â€” stern but cute warning
@@ -749,6 +887,30 @@ export class HUD {
     this.missionCompleted.style.opacity = opacity.toString();
   }
 
+  updateNearbyPlayers(players: {
+    username: string;
+    distance: number;
+    toasty: boolean;
+    heat: number;
+    emote?: string | null;
+  }[]): void {
+    if (players.length === 0) {
+      this.nearbyPlayersEl.style.display = 'none';
+      return;
+    }
+    this.nearbyPlayersEl.style.display = 'block';
+    const lines = players.slice(0, 5).map(p => {
+      const distLabel = p.distance < 50 ? 'RIGHT HERE' : p.distance < 150 ? 'NEARBY' : 'GLIDING';
+      const heatLabel = p.toasty ? (p.heat >= 20 ? ' GLOWING' : ' TOASTY') : '';
+      const emoteLabel = p.emote ? ` <span style="color:#ffe199">${p.emote}</span>` : '';
+      const color = p.distance < 50 ? '#ffd27a' : '#9bc5e6';
+      return `<span style="color:${color}">${p.username}</span> [${distLabel}]` +
+        `${heatLabel ? `<span style="color:#ffbf66">${heatLabel}</span>` : ''}${emoteLabel}`;
+    });
+    this.nearbyPlayersEl.innerHTML =
+      `<div style="color:#8fd3ff;font-weight:bold;margin-bottom:2px;">FRIENDLY FLOCK</div>` + lines.join('<br>');
+  }
+
   updateAltitudeWarning(level: 'none' | 'caution' | 'danger' | 'critical'): void {
     if (level === 'none') {
       this.altitudeWarning.style.display = 'none';
@@ -821,5 +983,3 @@ export class HUD {
     return el;
   }
 }
-
-

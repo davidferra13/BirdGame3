@@ -24,6 +24,9 @@ export interface ToonOptions {
   transparent?: boolean;
   opacity?: number;
   map?: THREE.Texture | null;
+  emissive?: number | THREE.Color;
+  emissiveMap?: THREE.Texture | null;
+  emissiveIntensity?: number;
 }
 
 /** Create a MeshToonMaterial with the shared gradient map */
@@ -35,6 +38,9 @@ export function createToonMaterial(color: number | THREE.Color, opts?: ToonOptio
     transparent: opts?.transparent ?? false,
     opacity: opts?.opacity ?? 1,
     map: opts?.map ?? null,
+    emissive: opts?.emissive ?? 0x000000,
+    emissiveMap: opts?.emissiveMap ?? null,
+    emissiveIntensity: opts?.emissiveIntensity ?? 1,
   });
 }
 

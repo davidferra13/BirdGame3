@@ -113,8 +113,8 @@ export class SystemManager {
   wireComboAudio(): void {
     this.combo.onComboTierAchieved = (tierName: string) => {
       const tierMap: Record<string, number> = {
-        'DOUBLE!': 1, 'TRIPLE!': 2, 'MULTI KILL!': 3,
-        'MEGA COMBO!': 4, 'ULTRA COMBO!': 5, 'LEGENDARY!!!': 6,
+        'DOUBLE!': 1, 'TRIPLE!': 2, 'SWIFT SWOOP!': 3,
+        'BREEZY FLOW!': 4, 'SKY DANCE!': 5, 'GOLDEN GLIDE!': 6,
       };
       this.audio.playComboTierUp(tierMap[tierName] || 1);
     };

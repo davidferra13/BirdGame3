@@ -180,11 +180,21 @@ export class BuildingLOD {
     const highGroup = new THREE.Group();
 
     const highGeo = new THREE.BoxGeometry(width, height, depth);
-    const highMat = createToonMaterial(color, hasWindows ? { map: texPair.diffuse } : undefined);
+    const highMat = createToonMaterial(color, hasWindows ? {
+      map: texPair.diffuse,
+      emissive: 0xffffff,
+      emissiveMap: texPair.emissive,
+      emissiveIntensity: 0.6,
+    } : undefined);
     const highMesh = new THREE.Mesh(highGeo, highMat);
     highMesh.castShadow = true;
     highMesh.receiveShadow = true;
     highGroup.add(highMesh);
+
+    // Add rooftop architectural details (parapets, HVAC, spires, peaked roofs)
+    if (height > 15) {
+      BuildingLOD.addDetails(highGroup, width, height, depth, color);
+    }
 
     lod.addLevel(highGroup, 0);
 

@@ -14,10 +14,10 @@ const COMBO_TIERS: Record<ComboTier, ComboTierInfo> = {
   none: { name: '', color: '#fff', minStreak: 0, bonusMultiplier: 0, glowIntensity: 0 },
   double: { name: 'DOUBLE!', color: '#ffdd44', minStreak: 2, bonusMultiplier: 0.1, glowIntensity: 5 },
   triple: { name: 'TRIPLE!', color: '#ff8833', minStreak: 3, bonusMultiplier: 0.15, glowIntensity: 8 },
-  multi: { name: 'MULTI KILL!', color: '#ff4444', minStreak: 5, bonusMultiplier: 0.25, glowIntensity: 12 },
-  mega: { name: 'MEGA COMBO!', color: '#ff00ff', minStreak: 8, bonusMultiplier: 0.35, glowIntensity: 15 },
-  ultra: { name: 'ULTRA COMBO!', color: '#00ffff', minStreak: 12, bonusMultiplier: 0.5, glowIntensity: 20 },
-  legendary: { name: 'LEGENDARY!!!', color: '#ffd700', minStreak: 20, bonusMultiplier: 1.0, glowIntensity: 30 }
+  multi: { name: 'SWIFT SWOOP!', color: '#ff4444', minStreak: 5, bonusMultiplier: 0.25, glowIntensity: 12 },
+  mega: { name: 'BREEZY FLOW!', color: '#ff00ff', minStreak: 8, bonusMultiplier: 0.35, glowIntensity: 15 },
+  ultra: { name: 'SKY DANCE!', color: '#00ffff', minStreak: 12, bonusMultiplier: 0.5, glowIntensity: 20 },
+  legendary: { name: 'GOLDEN GLIDE!', color: '#ffd700', minStreak: 20, bonusMultiplier: 1.0, glowIntensity: 30 }
 };
 
 export class ComboSystem {

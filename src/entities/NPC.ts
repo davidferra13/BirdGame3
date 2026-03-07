@@ -29,6 +29,66 @@ function getAngryTexture(): THREE.Texture {
   return angryTexture;
 }
 
+// Speech bubble textures cached by text content
+const speechBubbleCache = new Map<string, THREE.Texture>();
+
+// NPC-type-specific exclamations on hit
+const HIT_EXCLAMATIONS: Record<NPCType, string[]> = {
+  tourist:             ['My camera!', 'Eww!!', 'Gross!', 'Not cool!', 'Rude bird!'],
+  business:            ['My suit!', 'Hey!!', "I'll sue!", 'Watch it!', 'Security!'],
+  performer:           ['My song!', 'Ugh!', 'Bad bird!', 'No encore!', 'Off key!'],
+  police:              ['HALT!', 'Stop!', "You're done!", '10-4!', 'Busted!'],
+  chef:                ['My dish!', 'Mamma mia!', 'Raw bird!', 'Not food!', 'Sacrebleu!'],
+  treeman:             ['My leaves!', 'Timber!', 'Nooo!', 'Sap!', 'Branch off!'],
+  'glamorous-elegance': ['My outfit!', 'How dare!', 'Uncouth!', 'The nerve!', 'Ruined!'],
+};
+
+function getSpeechBubbleTexture(text: string): THREE.Texture {
+  const cached = speechBubbleCache.get(text);
+  if (cached) return cached;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = 256;
+  canvas.height = 96;
+  const ctx = canvas.getContext('2d')!;
+
+  // Rounded bubble background
+  const pad = 10;
+  const w = canvas.width - pad * 2;
+  const h = canvas.height - pad * 2 - 12;
+  const r = 14;
+  ctx.beginPath();
+  ctx.moveTo(pad + r, pad);
+  ctx.lineTo(pad + w - r, pad);
+  ctx.quadraticCurveTo(pad + w, pad, pad + w, pad + r);
+  ctx.lineTo(pad + w, pad + h - r);
+  ctx.quadraticCurveTo(pad + w, pad + h, pad + w - r, pad + h);
+  ctx.lineTo(canvas.width / 2 + 10, pad + h);
+  ctx.lineTo(canvas.width / 2, pad + h + 12);
+  ctx.lineTo(canvas.width / 2 - 10, pad + h);
+  ctx.lineTo(pad + r, pad + h);
+  ctx.quadraticCurveTo(pad, pad + h, pad, pad + h - r);
+  ctx.lineTo(pad, pad + r);
+  ctx.quadraticCurveTo(pad, pad, pad + r, pad);
+  ctx.closePath();
+
+  ctx.fillStyle = 'rgba(255,255,255,0.95)';
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(0,0,0,0.3)';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  ctx.fillStyle = '#222';
+  ctx.font = 'bold 28px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, canvas.width / 2, pad + h / 2);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  speechBubbleCache.set(text, tex);
+  return tex;
+}
+
 export class NPC {
   readonly mesh: THREE.Group;
   readonly boundingRadius = NPC_CONFIG.BOUNDING_RADIUS;
@@ -59,6 +119,9 @@ export class NPC {
 
   private angrySprite: THREE.Sprite | null = null;
   private angryAge = 0;
+
+  private speechSprite: THREE.Sprite | null = null;
+  private speechAge = 0;
 
   private knockbackVel = new THREE.Vector3();
   private jumpVel = 0;
@@ -429,6 +492,33 @@ export class NPC {
       }
     }
 
+    // Animate speech bubble (appears after angry burst fades)
+    if (this.speechSprite) {
+      this.speechAge += dt;
+      const SPEECH_LIFETIME = 1.8;
+      if (this.speechAge >= SPEECH_LIFETIME) {
+        this.mesh.remove(this.speechSprite);
+        this.speechSprite = null;
+      } else {
+        const t = this.speechAge / SPEECH_LIFETIME;
+        // Pop in, float up, fade out
+        let scale: number, alpha: number;
+        if (t < 0.1) {
+          scale = t / 0.1;
+          alpha = t / 0.1;
+        } else if (t < 0.7) {
+          scale = 1;
+          alpha = 1;
+        } else {
+          scale = 1;
+          alpha = 1 - (t - 0.7) / 0.3;
+        }
+        this.speechSprite.position.y = 2.8 + t * 0.8;
+        (this.speechSprite.material as THREE.SpriteMaterial).opacity = alpha;
+        this.speechSprite.scale.set(2.0 * scale, 0.75 * scale, 1);
+      }
+    }
+
     if (this.isHit) {
       this.updateHitState(dt);
       return;
@@ -737,6 +827,7 @@ export class NPC {
     this.jumpVel = 8;
 
     this.spawnAngryBurst();
+    this.spawnSpeechBubble();
 
     return { coins, heat, multiplierBonus: this.multiplierBonus };
   }
@@ -791,6 +882,24 @@ export class NPC {
     this.angrySprite.position.set(0, 2.2, 0);
     this.angryAge = 0;
     this.mesh.add(this.angrySprite);
+  }
+
+  private spawnSpeechBubble(): void {
+    if (this.speechSprite) {
+      this.mesh.remove(this.speechSprite);
+    }
+    const exclamations = HIT_EXCLAMATIONS[this.npcType];
+    const text = exclamations[Math.floor(Math.random() * exclamations.length)];
+    const mat = new THREE.SpriteMaterial({
+      map: getSpeechBubbleTexture(text),
+      transparent: true,
+      depthTest: false,
+    });
+    this.speechSprite = new THREE.Sprite(mat);
+    this.speechSprite.scale.set(0, 0, 1);
+    this.speechSprite.position.set(0, 2.8, 0);
+    this.speechAge = 0;
+    this.mesh.add(this.speechSprite);
   }
 
   private switchAnimation(newAction: THREE.AnimationAction | null): void {

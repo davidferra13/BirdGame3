@@ -53,7 +53,7 @@ export class CreditsPanel {
       margin-bottom: 30px;
       font-size: 14px;
     `;
-    subtitle.textContent = 'Bird Game 3D - Poop on everything';
+    subtitle.textContent = 'Bird Game 3D - cozy city gliding and a little mischief';
     panel.appendChild(subtitle);
 
     // Credits content
@@ -94,7 +94,7 @@ export class CreditsPanel {
       <div style="text-align: center; margin-top: 30px; padding-top: 20px; border-top: 1px solid rgba(255,255,255,0.2);">
         <div style="color: rgba(255,255,255,0.5); font-size: 12px;">
           &copy; 2026 Bird Game 3D. All rights reserved.<br>
-          Made with love and poop
+          Made with love, soft skies, and silly bird energy
         </div>
       </div>
     `;

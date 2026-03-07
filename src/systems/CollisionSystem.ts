@@ -91,6 +91,7 @@ export class CollisionSystem {
     bird: Bird,
     vfx?: VFXSystem,
     camera?: ThirdPersonCamera,
+    onHit?: () => void,
   ): void {
     if (!playerState.canScore) return;
 
@@ -140,6 +141,7 @@ export class CollisionSystem {
           }
 
           scoreSystem.onHitWithValues(coins, heat, npcType);
+          onHit?.();
 
           coinPopups.spawn(hitPos, scoreSystem.lastHitPoints, scoreSystem.lastHitMultiplier);
 

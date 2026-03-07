@@ -1195,8 +1195,21 @@ export class City {
     (window as any).canLight = isLit;
   }
 
-  setNightMode(_isNight: boolean): void {
-    // No-op: toon materials don't use emissive
+  setNightMode(isNight: boolean): void {
+    const intensity = isNight ? 0.8 : 0.15;
+    for (const b of this.buildings) {
+      const lod = b.mesh;
+      if (!lod || !(lod instanceof THREE.LOD)) continue;
+      // LOD level 0 is a Group; its first child is the building mesh with emissive map
+      const highGroup = lod.levels?.[0]?.object;
+      if (!highGroup) continue;
+      const mesh = highGroup.children?.[0] as THREE.Mesh | undefined;
+      if (!mesh) continue;
+      const mat = mesh.material as THREE.MeshToonMaterial;
+      if (mat?.emissiveMap) {
+        mat.emissiveIntensity = intensity;
+      }
+    }
   }
 
   private addTree(x: number, z: number): void {

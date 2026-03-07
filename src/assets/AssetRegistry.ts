@@ -28,6 +28,7 @@ export interface AssetEntry {
 export type AssetCategory =
   | 'bird'
   | 'npc'
+  | 'animal'
   | 'building'
   | 'nature'
   | 'prop'
@@ -212,6 +213,21 @@ class AssetRegistryImpl {
       path: '/models/characters/bird/skins/flamingo.glb',
       priority: 'medium',
     });
+
+    // ═══════════════════════════════════════════════════════════
+    // CATEGORY: Animals
+    // ═══════════════════════════════════════════════════════════
+    this.register({ key: 'animal.cat.bengal', label: 'Bengal Cat', category: 'animal', path: '/models/animals/cats/bengal.glb', priority: 'high' });
+    this.register({ key: 'animal.dog.bulldog', label: 'Bulldog', category: 'animal', path: '/models/animals/dogs/bulldog.glb', priority: 'high' });
+    this.register({ key: 'animal.dog.french_bulldog', label: 'French Bulldog', category: 'animal', path: '/models/animals/dogs/french_bulldog.glb', priority: 'high' });
+    this.register({ key: 'animal.dog.golden_retriever', label: 'Golden Retriever', category: 'animal', path: '/models/animals/dogs/golden_retriever.glb', priority: 'high' });
+    this.register({ key: 'animal.dog.pitbull', label: 'Pitbull', category: 'animal', path: '/models/animals/dogs/pitbull.glb', priority: 'high' });
+    this.register({ key: 'animal.dog.pug', label: 'Pug', category: 'animal', path: '/models/animals/dogs/pug.glb', priority: 'high' });
+    this.register({ key: 'animal.dog.rottweiler', label: 'Rottweiler', category: 'animal', path: '/models/animals/dogs/rottweiler.glb', priority: 'high' });
+    this.register({ key: 'animal.dog.chihuahua', label: 'Chihuahua', category: 'animal', path: '/models/animals/dogs/chihuahua.glb', priority: 'high' });
+    this.register({ key: 'animal.horse.white', label: 'White Horse', category: 'animal', path: '/models/animals/horses/white_horse.glb', priority: 'high' });
+    this.register({ key: 'animal.rodent.rat', label: 'Rat', category: 'animal', path: '/models/animals/rodents/rat.glb', priority: 'low' });
+    this.register({ key: 'animal.misc.elephant', label: 'Elephant', category: 'animal', path: '/models/animals/misc/elephant.glb', priority: 'medium' });
 
     // ═══════════════════════════════════════════════════════════
     // CATEGORY: NPCs

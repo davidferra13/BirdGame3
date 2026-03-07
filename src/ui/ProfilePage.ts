@@ -364,18 +364,18 @@ export class ProfilePage {
   private renderStats(): void {
     const stats = this.progression.stats;
 
-    // Combat
-    const combat = this.createSection('COMBAT');
-    this.addStatRows(combat, [
-      ['Total NPC Hits', stats.totalNPCHits.toLocaleString()],
-      ['Tourists Hit', stats.totalTouristsHit.toLocaleString()],
-      ['Business Hit', stats.totalBusinessHit.toLocaleString()],
-      ['Performers Hit', stats.totalPerformersHit.toLocaleString()],
-      ['Police Hit', stats.totalPoliceHit.toLocaleString()],
-      ['Chefs Hit', stats.totalChefsHit.toLocaleString()],
-      ['Treemen Hit', stats.totalTreemenHit.toLocaleString()],
+    // Activity
+    const activity = this.createSection('ACTIVITY');
+    this.addStatRows(activity, [
+      ['Total Playful Hits', stats.totalNPCHits.toLocaleString()],
+      ['Tourists Bopped', stats.totalTouristsHit.toLocaleString()],
+      ['Business Bopped', stats.totalBusinessHit.toLocaleString()],
+      ['Performers Bopped', stats.totalPerformersHit.toLocaleString()],
+      ['Police Bopped', stats.totalPoliceHit.toLocaleString()],
+      ['Chefs Bopped', stats.totalChefsHit.toLocaleString()],
+      ['Treemen Bopped', stats.totalTreemenHit.toLocaleString()],
     ]);
-    this.contentArea.appendChild(combat);
+    this.contentArea.appendChild(activity);
 
     // Banking
     const banking = this.createSection('BANKING');
@@ -390,15 +390,22 @@ export class ProfilePage {
     const flight = this.createSection('FLIGHT');
     this.addStatRows(flight, [
       ['Distance Flown', this.formatDistance(stats.totalDistanceFlown), '#44ddff'],
-      ['Times Grounded', stats.totalTimesGrounded.toLocaleString(), '#ff6666'],
+      ['Hard Landings', stats.totalTimesGrounded.toLocaleString(), '#ff6666'],
     ]);
     this.contentArea.appendChild(flight);
+
+    const exploration = this.createSection('EXPLORATION');
+    this.addStatRows(exploration, [
+      ['Districts Discovered', `${stats.totalDistrictsDiscovered} / 15`, '#8fd3ff'],
+      ['Zoo Friends Visited', stats.totalZooHits.toLocaleString(), '#ffa85c'],
+    ]);
+    this.contentArea.appendChild(exploration);
 
     // Personal Bests
     const records = this.createSection('PERSONAL BESTS');
     this.addStatRows(records, [
       ['Highest Heat', Math.round(stats.highestHeat).toString(), '#ff4444'],
-      ['Highest Streak', stats.highestStreak + 'x', '#ff8844'],
+      ['Best Streak', stats.highestStreak + 'x', '#ff8844'],
       ['Largest Bank', stats.largestBank.toLocaleString(), '#ffdd44'],
     ]);
     this.contentArea.appendChild(records);

@@ -1,7 +1,8 @@
 /**
  * Global Chat UI
- * Semi-transparent chat overlay with message history and text input.
+ * Semi-transparent chat overlay with message history and virtual keyboard input.
  * Press Enter to open, Enter to send, Escape to close.
+ * Game keeps running while chat is open - no pointer lock release, no game pause.
  */
 
 interface ChatMessageEntry {
@@ -18,18 +19,48 @@ const MESSAGE_GONE_TIME = 18000; // ms before messages fully disappear
 export class ChatUI {
   private container: HTMLDivElement;
   private messagesDiv: HTMLDivElement;
-  private inputContainer: HTMLDivElement;
-  private inputField: HTMLInputElement;
+  private inputDisplay: HTMLDivElement;
   private messages: ChatMessageEntry[] = [];
   private isOpen = false;
   private onSend: ((message: string) => void) | null = null;
+  private fadeIntervalId: ReturnType<typeof setInterval> | null = null;
+  private readonly keydownHandler: (e: KeyboardEvent) => void;
+
+  // Virtual keyboard state
+  private chatText = '';
+  private cursorVisible = true;
+  private cursorIntervalId: ReturnType<typeof setInterval> | null = null;
 
   // Rate limiting
   private lastSendTime = 0;
   private sendCooldown = 1000; // 1 second between messages
 
   constructor() {
-    // Main container
+    this.keydownHandler = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+
+      if (this.isOpen) {
+        e.stopPropagation();
+        e.preventDefault();
+
+        if (e.key === 'Enter') {
+          this.sendMessage();
+        } else if (e.key === 'Escape') {
+          this.close();
+        } else if (e.key === 'Backspace') {
+          this.chatText = this.chatText.slice(0, -1);
+          this.updateInputDisplay();
+        } else if (e.key.length === 1 && this.chatText.length < 150) {
+          this.chatText += e.key;
+          this.updateInputDisplay();
+        }
+      } else if (e.key === 'Enter' && document.pointerLockElement) {
+        e.preventDefault();
+        e.stopPropagation();
+        this.open();
+      }
+    };
+
     this.container = document.createElement('div');
     this.container.id = 'chat-ui';
     Object.assign(this.container.style, {
@@ -44,7 +75,6 @@ export class ChatUI {
       fontSize: '13px',
     });
 
-    // Messages area
     this.messagesDiv = document.createElement('div');
     Object.assign(this.messagesDiv.style, {
       maxHeight: '220px',
@@ -56,67 +86,23 @@ export class ChatUI {
     });
     this.container.appendChild(this.messagesDiv);
 
-    // Input container (hidden by default)
-    this.inputContainer = document.createElement('div');
-    Object.assign(this.inputContainer.style, {
+    this.inputDisplay = document.createElement('div');
+    Object.assign(this.inputDisplay.style, {
       display: 'none',
       background: 'rgba(0, 0, 0, 0.75)',
       borderRadius: '6px',
-      padding: '4px',
-      marginTop: '4px',
-      pointerEvents: 'auto',
-    });
-
-    this.inputField = document.createElement('input');
-    this.inputField.type = 'text';
-    this.inputField.maxLength = 150;
-    this.inputField.placeholder = 'Type a message...';
-    Object.assign(this.inputField.style, {
-      width: '100%',
-      background: 'rgba(255, 255, 255, 0.1)',
       border: '1px solid rgba(255, 255, 255, 0.2)',
-      borderRadius: '4px',
-      color: '#fff',
       padding: '6px 10px',
+      marginTop: '4px',
+      color: '#fff',
       fontSize: '13px',
-      outline: 'none',
-      boxSizing: 'border-box',
+      minHeight: '30px',
+      wordBreak: 'break-word',
     });
-
-    this.inputContainer.appendChild(this.inputField);
-    this.container.appendChild(this.inputContainer);
+    this.container.appendChild(this.inputDisplay);
 
     document.body.appendChild(this.container);
-
-    // Event listeners
-    this.inputField.addEventListener('keydown', (e) => {
-      e.stopPropagation(); // Prevent game input while typing
-      if (e.key === 'Enter') {
-        this.sendMessage();
-      } else if (e.key === 'Escape') {
-        this.close();
-      }
-    });
-
-    // Prevent game input events from firing while chat is focused
-    this.inputField.addEventListener('keyup', (e) => e.stopPropagation());
-    this.inputField.addEventListener('keypress', (e) => e.stopPropagation());
-
-    // Global listener for opening chat
-    document.addEventListener('keydown', (e) => {
-      // Don't open chat if already in an input field or menu
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
-
-      if (e.key === 'Enter' && !this.isOpen) {
-        // Only if pointer is locked (in-game)
-        if (document.pointerLockElement) {
-          e.preventDefault();
-          this.open();
-        }
-      }
-    });
-
-    // Start fade update loop
+    document.addEventListener('keydown', this.keydownHandler);
     this.startFadeLoop();
   }
 
@@ -127,7 +113,7 @@ export class ChatUI {
 
   /** Add an incoming chat message */
   addMessage(username: string, message: string, isSystem = false): void {
-    const color = isSystem ? '#aaa' : this.getUserColor(username);
+    const color = isSystem ? '#b9d8ff' : this.getUserColor(username);
 
     this.messages.push({
       username,
@@ -136,7 +122,6 @@ export class ChatUI {
       color,
     });
 
-    // Trim old messages
     if (this.messages.length > MAX_MESSAGES) {
       this.messages.shift();
     }
@@ -145,37 +130,35 @@ export class ChatUI {
     this.scrollToBottom();
   }
 
-  /** Open the chat input */
+  /** Open the chat input - pointer lock is NOT released, game keeps running */
   open(): void {
     if (this.isOpen) return;
     this.isOpen = true;
-    this.inputContainer.style.display = 'block';
-    this.container.style.pointerEvents = 'auto';
+    this.chatText = '';
+    this.cursorVisible = true;
 
-    // Exit pointer lock so user can type
-    document.exitPointerLock();
+    this.inputDisplay.style.display = 'block';
 
-    // Focus input after a tiny delay (pointer lock release needs time)
-    setTimeout(() => {
-      this.inputField.focus();
-    }, 50);
+    this.cursorIntervalId = setInterval(() => {
+      this.cursorVisible = !this.cursorVisible;
+      this.updateInputDisplay();
+    }, 500);
 
-    // Show all messages while chat is open
     this.renderMessages();
+    this.updateInputDisplay();
   }
 
   /** Close the chat input */
   close(): void {
     if (!this.isOpen) return;
     this.isOpen = false;
-    this.inputContainer.style.display = 'none';
-    this.inputField.value = '';
-    this.container.style.pointerEvents = 'none';
+    this.chatText = '';
 
-    // Re-acquire pointer lock
-    const canvas = document.querySelector('canvas');
-    if (canvas) {
-      canvas.requestPointerLock();
+    this.inputDisplay.style.display = 'none';
+
+    if (this.cursorIntervalId !== null) {
+      clearInterval(this.cursorIntervalId);
+      this.cursorIntervalId = null;
     }
   }
 
@@ -185,23 +168,39 @@ export class ChatUI {
   }
 
   private sendMessage(): void {
-    const text = this.inputField.value.trim();
+    const text = this.chatText.trim();
     if (!text) {
       this.close();
       return;
     }
 
-    // Rate limit
     const now = Date.now();
     if (now - this.lastSendTime < this.sendCooldown) {
       return;
     }
     this.lastSendTime = now;
 
-    // Send
     this.onSend?.(text);
-    this.inputField.value = '';
     this.close();
+  }
+
+  private updateInputDisplay(): void {
+    const cursor = this.cursorVisible ? '|' : ' ';
+    if (this.chatText.length === 0) {
+      this.inputDisplay.innerHTML =
+        `<span style="color:rgba(255,255,255,0.4)">Chat with the flock... (/chirp /flap /spin /salute /help)</span><span style="color:#fff">${cursor}</span>`;
+    } else {
+      const safe = this.escapeHtml(this.chatText);
+      this.inputDisplay.innerHTML = `<span style="color:#fff">${safe}${cursor}</span>`;
+    }
+  }
+
+  private escapeHtml(text: string): string {
+    return text
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
   }
 
   private renderMessages(): void {
@@ -214,7 +213,7 @@ export class ChatUI {
 
       if (!this.isOpen) {
         if (age > MESSAGE_GONE_TIME) {
-          continue; // Don't render
+          continue;
         }
         if (age > MESSAGE_FADE_TIME) {
           opacity = 1 - (age - MESSAGE_FADE_TIME) / (MESSAGE_GONE_TIME - MESSAGE_FADE_TIME);
@@ -250,7 +249,6 @@ export class ChatUI {
   }
 
   private getUserColor(username: string): string {
-    // Generate a consistent color from username hash
     let hash = 0;
     for (let i = 0; i < username.length; i++) {
       hash = ((hash << 5) - hash) + username.charCodeAt(i);
@@ -266,7 +264,7 @@ export class ChatUI {
   }
 
   private startFadeLoop(): void {
-    setInterval(() => {
+    this.fadeIntervalId = setInterval(() => {
       if (!this.isOpen && this.messages.length > 0) {
         this.renderMessages();
       }
@@ -275,6 +273,15 @@ export class ChatUI {
 
   /** Destroy the chat UI */
   destroy(): void {
+    if (this.cursorIntervalId !== null) {
+      clearInterval(this.cursorIntervalId);
+      this.cursorIntervalId = null;
+    }
+    if (this.fadeIntervalId !== null) {
+      clearInterval(this.fadeIntervalId);
+      this.fadeIntervalId = null;
+    }
+    document.removeEventListener('keydown', this.keydownHandler);
     this.container.remove();
   }
 }

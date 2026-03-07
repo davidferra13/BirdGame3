@@ -7,7 +7,9 @@ export type MissionType =
   | 'streak_count'
   | 'bank_amount'
   | 'collect_rings'
-  | 'survive_wanted';
+  | 'survive_wanted'
+  | 'hit_zoo_animals'
+  | 'visit_districts';
 
 export interface Mission {
   id: string;
@@ -25,11 +27,21 @@ export interface Mission {
   npcType?: 'tourist' | 'business' | 'performer' | 'police' | 'chef' | 'treeman';
 }
 
+export interface MissionRewardPayout {
+  missionId: string;
+  title: string;
+  reward: {
+    coins: number;
+    xp: number;
+    feathers: number;
+  };
+}
+
 const STORY_MISSIONS: Mission[] = [
   {
     id: 'tutorial_first_hit',
     title: 'Welcome to the Skies',
-    description: 'Hit your first NPC',
+    description: 'Land your first playful hit',
     type: 'hit_target_count',
     target: 1,
     current: 0,
@@ -38,8 +50,8 @@ const STORY_MISSIONS: Mission[] = [
   },
   {
     id: 'tutorial_tourist',
-    title: 'Tourist Trouble',
-    description: 'Hit 5 tourists',
+    title: 'Friendly Faces',
+    description: 'Greet 5 tourists with a playful plop',
     type: 'hit_specific_npc',
     target: 5,
     current: 0,
@@ -49,7 +61,7 @@ const STORY_MISSIONS: Mission[] = [
   },
   {
     id: 'tutorial_heat',
-    title: 'Feeling the Heat',
+    title: 'Warm Breeze',
     description: 'Reach Heat level 10',
     type: 'reach_heat',
     target: 10,
@@ -60,7 +72,7 @@ const STORY_MISSIONS: Mission[] = [
   {
     id: 'tutorial_bank',
     title: 'Banking Basics',
-    description: 'Bank 150 coins at the sanctuary',
+    description: 'Settle 150 coins at the sanctuary',
     type: 'bank_amount',
     target: 150,
     current: 0,
@@ -68,8 +80,18 @@ const STORY_MISSIONS: Mission[] = [
     completed: false,
   },
   {
+    id: 'district_stroll',
+    title: 'Neighborhood Hopper',
+    description: 'Visit 3 different city districts',
+    type: 'visit_districts',
+    target: 3,
+    current: 0,
+    reward: { coins: 125, xp: 60 },
+    completed: false,
+  },
+  {
     id: 'hot_streak',
-    title: 'Hot Streak',
+    title: 'Smooth Sailing',
     description: 'Achieve a 5-hit streak',
     type: 'streak_count',
     target: 5,
@@ -77,13 +99,33 @@ const STORY_MISSIONS: Mission[] = [
     reward: { coins: 150, xp: 75 },
     completed: false,
   },
+  {
+    id: 'zoo_visit',
+    title: 'Zoo Loop',
+    description: 'Visit 3 zoo animals with a cheeky drop',
+    type: 'hit_zoo_animals',
+    target: 3,
+    current: 0,
+    reward: { coins: 250, xp: 125, feathers: 2 },
+    completed: false,
+  },
+  {
+    id: 'zoo_tour',
+    title: 'Safari Stroll',
+    description: 'Make the rounds with 8 zoo animals',
+    type: 'hit_zoo_animals',
+    target: 8,
+    current: 0,
+    reward: { coins: 500, xp: 200, feathers: 5 },
+    completed: false,
+  },
 ];
 
 const DAILY_MISSIONS: Mission[] = [
   {
     id: 'daily_business',
-    title: 'Business District',
-    description: 'Hit 10 business people',
+    title: 'Morning Commute',
+    description: 'Drop in on 10 business people',
     type: 'hit_specific_npc',
     target: 10,
     current: 0,
@@ -93,7 +135,7 @@ const DAILY_MISSIONS: Mission[] = [
   },
   {
     id: 'daily_performer',
-    title: 'Show Stopper',
+    title: 'Showtime Stroll',
     description: 'Hit 3 street performers',
     type: 'hit_specific_npc',
     target: 3,
@@ -104,12 +146,32 @@ const DAILY_MISSIONS: Mission[] = [
   },
   {
     id: 'daily_rings',
-    title: 'Ring Master',
+    title: 'Ring Ramble',
     description: 'Fly through 10 flight rings',
     type: 'collect_rings',
     target: 10,
     current: 0,
     reward: { coins: 300, xp: 150 },
+    completed: false,
+  },
+  {
+    id: 'daily_districts',
+    title: 'Scenic Route',
+    description: 'Visit 5 different city districts',
+    type: 'visit_districts',
+    target: 5,
+    current: 0,
+    reward: { coins: 225, xp: 120, feathers: 1 },
+    completed: false,
+  },
+  {
+    id: 'daily_zoo',
+    title: 'Zoo Mischief',
+    description: 'Visit 5 zoo animals with a cheeky drop',
+    type: 'hit_zoo_animals',
+    target: 5,
+    current: 0,
+    reward: { coins: 350, xp: 175, feathers: 2 },
     completed: false,
   },
 ];
@@ -119,6 +181,8 @@ export class MissionSystem {
   private dailyMissions: Mission[];
   private activeMission: Mission | null = null;
   private completedMissionIds = new Set<string>();
+  private rewardQueue: MissionRewardPayout[] = [];
+  private activeMissionDistricts = new Set<string>();
 
   // UI notification state
   missionCompletedText = '';
@@ -188,18 +252,30 @@ export class MissionSystem {
     this.checkCompletion();
   }
 
+  recordZooHit(): void {
+    if (!this.activeMission || this.activeMission.type !== 'hit_zoo_animals') return;
+    this.activeMission.current++;
+    this.checkCompletion();
+  }
+
+  recordDistrictVisit(districtName: string): void {
+    if (!this.activeMission || this.activeMission.type !== 'visit_districts') return;
+    if (this.activeMissionDistricts.has(districtName)) return;
+    this.activeMissionDistricts.add(districtName);
+    this.activeMission.current = this.activeMissionDistricts.size;
+    this.checkCompletion();
+  }
+
   private checkCompletion(): void {
     if (!this.activeMission) return;
 
     if (this.activeMission.current >= this.activeMission.target && !this.activeMission.completed) {
       this.activeMission.completed = true;
+      this.activeMission.current = this.activeMission.target;
       this.completedMissionIds.add(this.activeMission.id);
+      this.queueReward(this.activeMission);
       this.triggerCompletionNotification();
-
-      // Auto-select next mission after 1 second
-      setTimeout(() => {
-        this.selectNextMission();
-      }, 1000);
+      this.selectNextMission();
     }
   }
 
@@ -220,19 +296,19 @@ export class MissionSystem {
     // First, check for incomplete story missions
     const nextStory = this.storyMissions.find(m => !this.completedMissionIds.has(m.id));
     if (nextStory) {
-      this.activeMission = nextStory;
+      this.setActiveMission(nextStory);
       return;
     }
 
     // Then check daily missions
     const nextDaily = this.dailyMissions.find(m => !this.completedMissionIds.has(m.id));
     if (nextDaily) {
-      this.activeMission = nextDaily;
+      this.setActiveMission(nextDaily);
       return;
     }
 
     // No missions left
-    this.activeMission = null;
+    this.setActiveMission(null);
   }
 
   getActiveMission(): Mission | null {
@@ -244,16 +320,15 @@ export class MissionSystem {
     return Math.min(this.activeMission.current / this.activeMission.target, 1);
   }
 
+  consumeRewardQueue(): MissionRewardPayout[] {
+    const rewards = [...this.rewardQueue];
+    this.rewardQueue.length = 0;
+    return rewards;
+  }
+
   claimReward(): { coins: number; xp: number; feathers: number } | null {
-    if (!this.activeMission || !this.activeMission.completed) return null;
-
-    const r = this.activeMission.reward;
-    const reward = { coins: r.coins || 0, xp: r.xp || 0, feathers: r.feathers || 0 };
-
-    // Move to next mission
-    this.selectNextMission();
-
-    return reward;
+    const nextReward = this.rewardQueue.shift();
+    return nextReward ? { ...nextReward.reward } : null;
   }
 
   resetDaily(): void {
@@ -263,5 +338,22 @@ export class MissionSystem {
       this.completedMissionIds.delete(m.id);
     });
     this.selectNextMission();
+  }
+
+  private queueReward(mission: Mission): void {
+    this.rewardQueue.push({
+      missionId: mission.id,
+      title: mission.title,
+      reward: {
+        coins: mission.reward.coins || 0,
+        xp: mission.reward.xp || 0,
+        feathers: mission.reward.feathers || 0,
+      },
+    });
+  }
+
+  private setActiveMission(mission: Mission | null): void {
+    this.activeMission = mission;
+    this.activeMissionDistricts.clear();
   }
 }
