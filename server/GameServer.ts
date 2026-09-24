@@ -878,7 +878,7 @@ export class GameServer {
 
       // ── Players list ───────────────────────────────────────────────────────
       case 'players': {
-        const realCount = this.clients.size;
+        const connectedSessionCount = this.clients.size;
         const botCount = this.botManager.getBotCount();
         const list = Array.from(this.clients.entries())
           .map(([id]) => {
@@ -891,7 +891,7 @@ export class GameServer {
             return `${p?.username ?? id}${flags ? ` [${flags}]` : ''}`;
           })
           .join(', ');
-        this.adminReply(ws, `Players (${realCount} real + ${botCount} bots): ${list || 'none'}`);
+        this.adminReply(ws, `Players (${connectedSessionCount} connected sessions + ${botCount} bots): ${list || 'none'}`);
         break;
       }
 
@@ -965,7 +965,7 @@ export class GameServer {
         const mins = Math.floor((uptimeSec % 3600) / 60);
         const secs = uptimeSec % 60;
         const uptime = `${hours}h ${mins}m ${secs}s`;
-        const realPlayers = this.clients.size;
+        const connectedSessions = this.clients.size;
         const bots = this.botManager.getBotCount();
         const poops = this.world.getActivePoopCount();
         const activePvP = this.pvpSessions.size;
@@ -973,7 +973,7 @@ export class GameServer {
         const frozen = this.frozenPlayers.size;
         const banned = this.bannedPlayerIds.size;
         this.adminReply(ws,
-          `Server info — Uptime: ${uptime} | Players: ${realPlayers} real + ${bots} bots | ` +
+          `Server info — Uptime: ${uptime} | Players: ${connectedSessions} connected sessions + ${bots} bots | ` +
           `Active poops: ${poops} | PvP sessions: ${activePvP} | ` +
           `Muted: ${muted} | Frozen: ${frozen} | Banned: ${banned}`,
         );
@@ -1394,7 +1394,7 @@ export class GameServer {
 
   private setupBotCallbacks(): void {
     this.botManager.onBotJoined = (bot) => {
-      // Broadcast bot join to all real clients (looks like a real player joining)
+      // Broadcast bots through the normal player protocol; their usernames remain explicitly labeled [BOT].
       this.broadcast({
         type: 'player_joined',
         data: { player: bot.player.toState() },
@@ -1412,7 +1412,7 @@ export class GameServer {
       // Register poop for PvP collision tracking
       this.world.addActivePoop(bot.botId, bot.player.position, velocity);
 
-      // Broadcast poop drop to all real clients
+      // Broadcast poop drop to connected non-bot clients
       this.broadcast({
         type: 'poop',
         data: {
@@ -1542,7 +1542,7 @@ export class GameServer {
     // Periodic stats logging
     if (this.tickCount % STATS_LOG_INTERVAL_TICKS === 0) {
       const botCount = this.botManager.getBotCount();
-      console.log(`[Stats] Players: ${this.clients.size} real + ${botCount} bots = ${this.world.getPlayerCount()} total | Tick: ${this.tickCount}`);
+      console.log(`[Stats] Players: ${this.clients.size} connected sessions + ${botCount} bots = ${this.world.getPlayerCount()} total | Tick: ${this.tickCount}`);
     }
   }
 

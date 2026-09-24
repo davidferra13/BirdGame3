@@ -16,7 +16,7 @@ import { Vector3 } from './types.js';
 interface BotManagerConfig {
   /** Minimum bots always present */
   minBots: number;
-  /** Target player count (bots + real players) */
+  /** Target world population (bots + connected non-bot sessions) */
   targetPopulation: number;
   /** Maximum bots allowed */
   maxBots: number;
@@ -116,10 +116,10 @@ export class BotManager {
       this.evaluatePopulation(realPlayerCount);
     }
 
-    // Gather all real player positions for PvP awareness
+    // Gather connected non-bot player positions for PvP awareness
     const realPlayerPositions: Vector3[] = [];
     for (const player of this.world.getAllPlayers()) {
-      // Only include real players (not bots)
+      // Only include connected non-bot players
       if (!this.bots.has(player.id)) {
         realPlayerPositions.push({ ...player.position });
       }
@@ -195,7 +195,7 @@ export class BotManager {
   }
 
   /**
-   * Evaluate whether to add or remove bots based on real player count.
+   * Evaluate whether to add or remove bots based on connected non-bot session count.
    */
   private evaluatePopulation(realPlayerCount: number): void {
     const currentBotCount = this.bots.size;
@@ -210,7 +210,7 @@ export class BotManager {
       this.lastJoinTime = now;
     }
 
-    // Too many bots? (real players joined, reduce bots)
+    // Too many bots? (non-bot sessions joined, reduce bots)
     if (currentBotCount > this.config.minBots &&
         totalPopulation > this.config.targetPopulation + 2) {
       // Remove the bot with the shortest remaining session
@@ -295,7 +295,7 @@ export class BotManager {
   }
 
   /**
-   * Called by GameServer when a real player (or any non-bot) sends a chat message.
+   * Called by GameServer when a connected non-bot player sends a chat message.
    * Gives bots a chance to respond.
    */
   onExternalChat(senderId: string, username: string, message: string): void {
