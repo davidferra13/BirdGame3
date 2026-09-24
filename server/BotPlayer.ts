@@ -1,16 +1,14 @@
 /**
  * Bot Player
- * A server-side AI player that wraps the real Player class
- * and is driven by BotBehavior. Indistinguishable from real players
- * in the WorldState and network messages.
+ * A server-side AI player that wraps the real Player class and is driven by BotBehavior.
+ * Bots are deliberately labeled in player-facing names and remain separate from human metrics.
  */
 
 import { Player } from './Player.js';
 import { BotBehavior, BotArchetype } from './BotBehavior.js';
 import { Vector3 } from './types.js';
 
-// Realistic-looking usernames — diverse styles that real players actually use.
-// Deliberately NOT themed around birds/pooping so bots blend in with humans.
+// Varied base names keep the world readable; every displayed bot name gets an explicit [BOT] suffix.
 const BOT_NAMES: string[] = [
   // Generic gamer tags
   'ShadowMike', 'NightOwl33', 'CoolGuy_7', 'xDarkWolfx', 'SilentStorm',
@@ -128,6 +126,7 @@ export class BotPlayer {
   // Session simulation: bots "join" and "leave" over time
   private sessionDuration: number; // How long this bot stays (seconds)
   private sessionTimer = 0;
+  private readonly reservedBaseName: string;
   readonly botId: string;
 
   // PvP state tracking — BotManager compares these each tick to detect events
@@ -136,8 +135,8 @@ export class BotPlayer {
 
   constructor(spawnPos: Vector3) {
     this.botId = `bot_${nextBotId++}`;
-    const username = pickBotName();
-    this.player = new Player(this.botId, username, spawnPos);
+    this.reservedBaseName = pickBotName();
+    this.player = new Player(this.botId, `${this.reservedBaseName} [BOT]`, spawnPos);
     this.behavior = new BotBehavior(spawnPos);
 
     // Bots stay for 3-15 minutes then "leave" (mimics real player sessions)
@@ -151,7 +150,7 @@ export class BotPlayer {
   update(dt: number, nearbyPlayerPositions: Vector3[]): boolean {
     this.sessionTimer += dt;
     if (this.sessionTimer >= this.sessionDuration) {
-      releaseBotName(this.player.username);
+      releaseBotName(this.reservedBaseName);
       return false; // Session over
     }
 
@@ -213,6 +212,6 @@ export class BotPlayer {
   }
 
   destroy(): void {
-    releaseBotName(this.player.username);
+    releaseBotName(this.reservedBaseName);
   }
 }

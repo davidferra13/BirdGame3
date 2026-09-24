@@ -26,13 +26,26 @@ interface BotManagerConfig {
   joinStagger: number;
 }
 
-const DEFAULT_CONFIG: BotManagerConfig = {
-  minBots: 3,
-  targetPopulation: 8,
-  maxBots: 15,
-  evaluationInterval: 5,
-  joinStagger: 3,
-};
+function envInt(name: string, fallback: number, min: number, max: number): number {
+  const raw = process.env[name]?.trim();
+  if (!raw) return fallback;
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || parsed < min || parsed > max) {
+    console.warn(`Ignoring invalid ${name}=${raw}; expected an integer from ${min} to ${max}.`);
+    return fallback;
+  }
+  return parsed;
+}
+
+function defaultConfig(): BotManagerConfig {
+  return {
+    minBots: envInt('BOT_MIN', 3, 0, 100),
+    targetPopulation: envInt('BOT_TARGET_POPULATION', 8, 0, 500),
+    maxBots: envInt('BOT_MAX', 15, 0, 100),
+    evaluationInterval: envInt('BOT_EVALUATION_SECONDS', 5, 1, 60),
+    joinStagger: envInt('BOT_JOIN_STAGGER_SECONDS', 3, 1, 60),
+  };
+}
 
 export class BotManager {
   private bots: Map<string, BotPlayer> = new Map();
@@ -56,8 +69,21 @@ export class BotManager {
 
   constructor(world: WorldState, config?: Partial<BotManagerConfig>) {
     this.world = world;
-    this.config = { ...DEFAULT_CONFIG, ...config };
+    const merged = { ...defaultConfig(), ...config };
+    const maxBots = Math.max(0, Math.min(100, merged.maxBots));
+    this.config = {
+      ...merged,
+      maxBots,
+      minBots: Math.min(Math.max(0, merged.minBots), maxBots),
+      targetPopulation: Math.max(0, Math.min(500, merged.targetPopulation)),
+      evaluationInterval: Math.max(1, merged.evaluationInterval),
+      joinStagger: Math.max(1, merged.joinStagger),
+    };
     this.chatEngine = new BotChatEngine();
+  }
+
+  getPopulationConfig(): Readonly<BotManagerConfig> {
+    return { ...this.config };
   }
 
   /**

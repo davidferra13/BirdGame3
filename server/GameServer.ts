@@ -24,6 +24,16 @@ interface AuthenticatedSocket extends WebSocket {
 
 /** Maximum concurrent players */
 const MAX_PLAYERS = 500;
+const REAL_PLAYER_TARGET = (() => {
+  const raw = process.env.REAL_PLAYER_TARGET?.trim();
+  if (!raw) return 100;
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || parsed < 1 || parsed > MAX_PLAYERS) {
+    console.warn(`Ignoring invalid REAL_PLAYER_TARGET=${raw}; expected an integer from 1 to ${MAX_PLAYERS}.`);
+    return 100;
+  }
+  return parsed;
+})();
 
 /** Maximum WebSocket buffer before skipping sends (backpressure) */
 const MAX_BUFFER_SIZE = 64 * 1024; // 64KB
@@ -168,8 +178,14 @@ export class GameServer {
     const status = this.shutdownPromise ? 'stopping' : ready ? 'ready' : 'starting';
     respond(pathname === '/readyz' && !ready ? 503 : 200, {
       service: 'bird-game-3', status, ready, readinessScope: 'game-loop-only',
-      worldId: WORLD_ID, humanPlayers: this.clients.size,
-      botPlayers: this.botManager.getBotCount(), maxHumanPlayers: MAX_PLAYERS,
+      worldId: WORLD_ID,
+      humanPlayers: this.clients.size,
+      connectedHumanSessions: this.clients.size,
+      targetConnectedHumanSessions: REAL_PLAYER_TARGET,
+      connectedHumanSessionGap: Math.max(0, REAL_PLAYER_TARGET - this.clients.size),
+      botPlayers: this.botManager.getBotCount(),
+      botPopulation: this.botManager.getPopulationConfig(),
+      maxHumanPlayers: MAX_PLAYERS,
       tickRate: this.world.TICK_RATE, tickCount: this.tickCount,
       uptimeSeconds: Math.floor((Date.now() - this.serverStartTime) / 1000),
     });
