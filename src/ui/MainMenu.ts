@@ -24,8 +24,10 @@ export class MainMenu {
     this.container.setAttribute('role', 'navigation');
     this.container.setAttribute('aria-label', 'Main menu');
     this.container.style.cssText =
-      'position:absolute;top:0;left:0;width:100%;height:100%;' +
-      'display:flex;flex-direction:column;align-items:center;justify-content:center;' +
+      'position:absolute;inset:0;width:100%;height:100%;box-sizing:border-box;' +
+      'display:flex;flex-direction:column;align-items:center;justify-content:flex-start;' +
+      'padding:72px 16px 28px;overflow-x:hidden;overflow-y:auto;' +
+      '-webkit-overflow-scrolling:touch;' +
       'background:linear-gradient(180deg,#1a2a3a 0%,#2a4a6a 50%,#87ceeb 100%);' +
       'font-family:"Segoe UI",system-ui,sans-serif;color:#fff;z-index:100;';
 
@@ -65,14 +67,18 @@ export class MainMenu {
     title.setAttribute('role', 'heading');
     title.setAttribute('aria-level', '1');
     title.style.cssText =
-      'font-size:72px;font-weight:bold;margin-bottom:10px;' +
-      'text-shadow:3px 3px 6px rgba(0,0,0,0.5);letter-spacing:4px;';
+      'flex-shrink:0;max-width:100%;margin-top:auto;margin-bottom:10px;' +
+      'font-size:clamp(30px,8vw,72px);line-height:1.1;font-weight:bold;' +
+      'text-align:center;letter-spacing:clamp(1px,0.4vw,4px);' +
+      'text-shadow:3px 3px 6px rgba(0,0,0,0.5);';
     title.textContent = 'BIRD GAME 3';
     this.container.appendChild(title);
 
     const subtitle = document.createElement('div');
     subtitle.style.cssText =
-      'font-size:18px;color:rgba(255,255,255,0.7);margin-bottom:60px;letter-spacing:2px;';
+      'flex-shrink:0;max-width:100%;text-align:center;font-size:18px;' +
+      'color:rgba(255,255,255,0.7);margin-bottom:clamp(24px,5vh,60px);' +
+      'letter-spacing:2px;';
     subtitle.textContent = 'Glide, explore, and stir up a little mischief.';
     this.container.appendChild(subtitle);
 
@@ -96,7 +102,8 @@ export class MainMenu {
       el.setAttribute('aria-label', btn.ariaLabel);
       el.setAttribute('type', 'button');
       el.style.cssText =
-        'display:block;width:240px;padding:14px 0;margin:6px 0;' +
+        'display:block;width:min(240px,100%);min-height:48px;flex-shrink:0;' +
+        'padding:14px 0;margin:6px 0;' +
         'background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.3);' +
         'color:#fff;font-size:18px;font-weight:bold;letter-spacing:3px;' +
         'cursor:pointer;border-radius:4px;pointer-events:auto;' +
@@ -126,8 +133,14 @@ export class MainMenu {
     // Controls hint
     const hint = document.createElement('div');
     hint.style.cssText =
-      'position:absolute;bottom:30px;font-size:12px;color:rgba(255,255,255,0.5);text-align:center;';
-    hint.innerHTML = 'WASD — Fly &nbsp;|&nbsp; S — Brake &nbsp;|&nbsp; SPACE — Ascend &nbsp;|&nbsp; K — Fast Descend &nbsp;|&nbsp; L-SHIFT — Slow Descend &nbsp;|&nbsp; CAPS — Bomber Mode';
+      'position:static;flex-shrink:0;max-width:100%;margin-top:16px;' +
+      'margin-bottom:auto;font-size:12px;line-height:1.5;' +
+      'color:rgba(255,255,255,0.65);text-align:center;';
+    if ('ontouchstart' in window || navigator.maxTouchPoints > 0) {
+      hint.textContent = 'Use your left thumb to fly and right thumb to look. Action buttons appear in-game.';
+    } else {
+      hint.innerHTML = 'WASD — Fly &nbsp;|&nbsp; S — Brake &nbsp;|&nbsp; SPACE — Ascend &nbsp;|&nbsp; K — Fast Descend &nbsp;|&nbsp; L-SHIFT — Slow Descend &nbsp;|&nbsp; CAPS — Bomber Mode';
+    }
     this.container.appendChild(hint);
 
     document.body.appendChild(this.container);
