@@ -10,6 +10,7 @@
     "preview": "vite preview",
     "server": "tsx server/index.ts",
     "server:build": "tsc -p server/tsconfig.json",
+    "build:release": "npm run server:build && npm run build",
     "server:start:prod": "node server/dist/index.js",
     "server:dev": "tsx watch server/index.ts",
     "start": "pnpm run server",
@@ -29,7 +30,7 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "packageManager": "pnpm@10.28.0",
+  "packageManager": "pnpm@10.34.4",
   "dependencies": {
     "@supabase/supabase-js": "^2.95.3",
     "dotenv": "^17.3.1",

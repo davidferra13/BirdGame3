@@ -2,7 +2,7 @@
  * Server-side player representation
  */
 
-import { PlayerState, MidPlayerState, Vector3, PlayerInput } from './types';
+import { PlayerState, MidPlayerState, Vector3, PlayerInput } from './types.js';
 
 /** Poop cooldown in milliseconds (matches client POOP.COOLDOWN * 1000) */
 const POOP_COOLDOWN_MS = 400;

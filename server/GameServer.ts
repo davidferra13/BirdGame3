@@ -5,14 +5,14 @@
  */
 
 import WebSocket, { WebSocketServer } from 'ws';
-import { createServer, IncomingMessage } from 'http';
-import { WorldState } from './WorldState';
-import { Player } from './Player';
-import { BotManager } from './BotManager';
-import { ClientMessage, ServerMessage, PlayerInput, ChatMessage } from './types';
-import { MvMManager } from './MvMManager';
-import { MurmurationState } from './MurmurationState';
-import { HeistManager } from './HeistManager';
+import { createServer, IncomingMessage, ServerResponse } from 'http';
+import { WorldState } from './WorldState.js';
+import { Player } from './Player.js';
+import { BotManager } from './BotManager.js';
+import { ClientMessage, ServerMessage, PlayerInput, ChatMessage } from './types.js';
+import { MvMManager } from './MvMManager.js';
+import { MurmurationState } from './MurmurationState.js';
+import { HeistManager } from './HeistManager.js';
 
 interface AuthenticatedSocket extends WebSocket {
   playerId?: string;
@@ -20,11 +20,7 @@ interface AuthenticatedSocket extends WebSocket {
   isAdmin?: boolean;
 }
 
-/** Supabase UUIDs of admin users (player IDs start with these) */
-const ADMIN_USER_IDS: string[] = (process.env.ADMIN_USER_IDS || '')
-  .split(',')
-  .map((id) => id.trim())
-  .filter(Boolean);
+// Client-provided player IDs are not verified principals and never grant admin access.
 
 /** Maximum concurrent players */
 const MAX_PLAYERS = 500;
@@ -62,6 +58,9 @@ const PVP_STATE_BROADCAST_INTERVAL_MS = 200;
 
 export class GameServer {
   private wss: WebSocketServer;
+  private httpServer: ReturnType<typeof createServer>;
+  private shutdownPromise: Promise<void> | null = null;
+  private lastSuccessfulTickAt = 0;
   private world: WorldState;
   private clients: Map<string, AuthenticatedSocket>;
   private tickInterval: NodeJS.Timeout | null;
@@ -80,9 +79,10 @@ export class GameServer {
   private playerPvPSession: Map<string, string> = new Map();         // playerId → sessionId
   private pvpActiveByMode: Map<PvPModeId, string> = new Map();       // modeId → current joinable sessionId
 
-  constructor(port: number = 3001) {
-    const httpServer = createServer();
-    this.wss = new WebSocketServer({ server: httpServer });
+  constructor(port: number = 3001, host: string = process.env.WS_HOST || '0.0.0.0') {
+    const httpServer = createServer((req, res) => this.handleHttpRequest(req, res));
+    this.httpServer = httpServer;
+    this.wss = new WebSocketServer({ server: httpServer, maxPayload: MAX_MESSAGE_SIZE, perMessageDeflate: false });
     this.world = new WorldState();
     this.clients = new Map();
     this.tickInterval = null;
@@ -136,11 +136,42 @@ export class GameServer {
       throw err;
     });
 
-    httpServer.listen(port, '0.0.0.0', () => {
-      console.log(`Bird Game 3D Server running on 0.0.0.0:${port}`);
+    httpServer.listen(port, host, () => {
+      console.log('Bird Game 3D Server listening:', httpServer.address());
       console.log(`   Tick Rate: ${this.world.TICK_RATE} ticks/sec`);
       console.log(`   Max Players: ${MAX_PLAYERS}`);
       console.log(`   Waiting for players...`);
+    });
+  }
+
+  /** Actual bound address, including OS-selected ports for isolated verification. */
+  address() { return this.httpServer.address(); }
+
+  private handleHttpRequest(req: IncomingMessage, res: ServerResponse): void {
+    const pathname = (req.url || '/').split('?')[0];
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    const respond = (code: number, value: unknown) => {
+      res.statusCode = code;
+      res.end(req.method === 'HEAD' ? undefined : JSON.stringify(value));
+    };
+    if (!['GET', 'HEAD'].includes(req.method || '')) {
+      res.setHeader('Allow', 'GET, HEAD');
+      respond(405, { error: 'Method not allowed' }); return;
+    }
+    if (!['/', '/healthz', '/readyz', '/status'].includes(pathname)) {
+      respond(404, { error: 'Not found' }); return;
+    }
+    const ready = !this.shutdownPromise && this.tickInterval !== null
+      && this.lastSuccessfulTickAt > 0 && Date.now() - this.lastSuccessfulTickAt < 2000;
+    const status = this.shutdownPromise ? 'stopping' : ready ? 'ready' : 'starting';
+    respond(pathname === '/readyz' && !ready ? 503 : 200, {
+      service: 'bird-game-3', status, ready, readinessScope: 'game-loop-only',
+      worldId: WORLD_ID, humanPlayers: this.clients.size,
+      botPlayers: this.botManager.getBotCount(), maxHumanPlayers: MAX_PLAYERS,
+      tickRate: this.world.TICK_RATE, tickCount: this.tickCount,
+      uptimeSeconds: Math.floor((Date.now() - this.serverStartTime) / 1000),
     });
   }
 
@@ -290,12 +321,19 @@ export class GameServer {
   }
 
   private handlePlayerJoin(ws: AuthenticatedSocket, data: any): void {
+    if (this.shutdownPromise) { ws.close(1012, 'Server restarting'); return; }
+    if (ws.playerId) { this.sendError(ws, 'Already joined on this connection'); return; }
     const rawPlayerId = typeof data?.playerId === 'string' ? data.playerId.trim() : '';
     const rawUsername = typeof data?.username === 'string' ? data.username.trim() : '';
     const rawWorldId = typeof data?.worldId === 'string' ? data.worldId.trim() : '';
 
     if (!rawPlayerId) {
       this.sendError(ws, 'Missing playerId');
+      return;
+    }
+    if (!/^[A-Za-z0-9_-]{1,128}$/.test(rawPlayerId)
+      || rawUsername.length > 48 || [...rawUsername].some(char => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127)) {
+      this.sendError(ws, 'Invalid player identity');
       return;
     }
     if (!rawWorldId || rawWorldId !== WORLD_ID) {
@@ -324,10 +362,12 @@ export class GameServer {
     }
 
     // Check if player already exists
-    if (this.clients.has(playerId)) {
+    if (this.world.getPlayer(playerId)) {
       // Guest collisions are common (multiple tabs/windows). Auto-dedupe instead of rejecting.
       if (playerId.startsWith('guest_')) {
-        playerId = `${playerId}_${Math.random().toString(36).substring(2, 7)}`;
+        do {
+          playerId = `${rawPlayerId}_${Math.random().toString(36).substring(2, 7)}`;
+        } while (this.world.getPlayer(playerId));
       } else {
         this.sendError(ws, 'Player already connected');
         return;
@@ -341,9 +381,9 @@ export class GameServer {
 
     // Register client
     ws.playerId = playerId;
-    ws.isAdmin = ADMIN_USER_IDS.filter((id) => id.length >= 36).some(
-      (adminId) => playerId === adminId || playerId.startsWith(adminId + '_'),
-    );
+    // Fail closed until a server-verified authentication/role adapter is integrated.
+    // A UUID submitted in a join message is not proof of account ownership.
+    ws.isAdmin = false;
     this.clients.set(playerId, ws);
 
     // Send welcome message (full snapshot for initial load)
@@ -1308,6 +1348,10 @@ export class GameServer {
   // --- Disconnect ---
 
   private handlePlayerDisconnect(playerId: string): void {
+    const socket = this.clients.get(playerId);
+    if (!socket) return;
+    socket.playerId = undefined;
+    socket.isAdmin = false;
     this.removePlayerFromPvPSession(playerId);
     this.world.removePlayer(playerId);
     this.clients.delete(playerId);
@@ -1416,10 +1460,13 @@ export class GameServer {
   // --- Game Loop ---
 
   start(): void {
+    if (this.shutdownPromise) throw new Error('Cannot restart a stopped server instance');
+    if (this.tickInterval) return;
     const tickDt = this.world.TICK_INTERVAL / 1000;
     this.tickInterval = setInterval(() => {
       try {
         this.tick(tickDt);
+        this.lastSuccessfulTickAt = Date.now();
       } catch (error) {
         console.error('Error in server tick:', error);
       }
@@ -1516,15 +1563,33 @@ export class GameServer {
     });
   }
 
-  stop(): void {
-    if (this.tickInterval) {
-      clearInterval(this.tickInterval);
-    }
-    if (this.heartbeatInterval) {
-      clearInterval(this.heartbeatInterval);
-    }
+  stop(): Promise<void> {
+    if (this.shutdownPromise) return this.shutdownPromise;
+    if (this.tickInterval) clearInterval(this.tickInterval);
+    if (this.heartbeatInterval) clearInterval(this.heartbeatInterval);
+    this.tickInterval = null;
+    this.heartbeatInterval = null;
     this.botManager.destroyAll();
-    this.wss.close();
-    console.log('Server stopped');
+    this.shutdownPromise = new Promise<void>((resolve, reject) => {
+      let remaining = 2;
+      let failure: Error | undefined;
+      const deadline = setTimeout(() => {
+        // Only this game instance's connections, never other services or processes.
+        for (const socket of this.wss.clients) socket.terminate();
+        this.httpServer.closeAllConnections?.();
+      }, 1000);
+      deadline.unref();
+      const closed = (error?: Error) => {
+        if (error && (error as NodeJS.ErrnoException).code !== 'ERR_SERVER_NOT_RUNNING') failure = error;
+        if (--remaining !== 0) return;
+        clearTimeout(deadline);
+        if (failure) reject(failure);
+        else { console.log('Server stopped'); resolve(); }
+      };
+      this.wss.close(closed);
+      this.httpServer.close(closed);
+      for (const socket of this.wss.clients) socket.close(1001, 'Server shutting down');
+    });
+    return this.shutdownPromise;
   }
 }

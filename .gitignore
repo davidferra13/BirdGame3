@@ -1,3 +1,6 @@
+# Local build and verification receipts
+.runtime/
+
 # Dependencies
 node_modules/
 .pnpm-store/

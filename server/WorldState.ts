@@ -3,13 +3,13 @@
  * Global player visibility with PvP poop tracking.
  */
 
-import { Player } from './Player';
-import { ServerSpatialGrid } from './SpatialGrid';
-import { RaceManager } from './RaceManager';
+import { Player } from './Player.js';
+import { ServerSpatialGrid } from './SpatialGrid.js';
+import { RaceManager } from './RaceManager.js';
 import {
   WorldStateSnapshot, FilteredWorldState, Vector3, NPCState,
   HotspotState, ActivePoop, GameEvent, PvPHitResult,
-} from './types';
+} from './types.js';
 
 /** Event fanout radius (units) */
 const EVENT_BROADCAST_RADIUS = 500;

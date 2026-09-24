@@ -3,7 +3,7 @@
  * No Three.js dependency — uses plain {x, y, z} vectors.
  */
 
-import { Vector3 } from './types';
+import { Vector3 } from './types.js';
 
 export class ServerSpatialGrid {
   private grid = new Map<string, string[]>(); // cellKey -> playerIds

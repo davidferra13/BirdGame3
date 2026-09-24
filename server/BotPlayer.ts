@@ -5,9 +5,9 @@
  * in the WorldState and network messages.
  */
 
-import { Player } from './Player';
-import { BotBehavior, BotArchetype } from './BotBehavior';
-import { Vector3 } from './types';
+import { Player } from './Player.js';
+import { BotBehavior, BotArchetype } from './BotBehavior.js';
+import { Vector3 } from './types.js';
 
 // Realistic-looking usernames — diverse styles that real players actually use.
 // Deliberately NOT themed around birds/pooping so bots blend in with humans.

@@ -4,7 +4,7 @@
  * Uses Perlin-like noise for organic movement and weighted state transitions.
  */
 
-import { Vector3 } from './types';
+import { Vector3 } from './types.js';
 
 // --- Behavior States ---
 

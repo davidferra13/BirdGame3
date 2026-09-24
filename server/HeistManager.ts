@@ -4,7 +4,7 @@
  * Follows the pattern of RaceManager.ts.
  */
 
-import { Vector3 } from './types';
+import { Vector3 } from './types.js';
 
 // Heist constants (server-side mirror of client Constants.ts HEIST section)
 const HEIST = {

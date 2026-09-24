@@ -4,7 +4,7 @@
  * Every component reads from this rather than calling getCurrentUser() repeatedly.
  */
 
-import { supabase } from './SupabaseClient';
+import { supabase, isCloudAuthConfigured } from './SupabaseClient';
 import { getCurrentProfile } from './AuthService';
 import { Profile } from '../types/database';
 import { shouldClearSession, clearRememberMe } from './RememberMeService';
@@ -76,6 +76,7 @@ const GUEST_NAME_KEY = 'birdgame_guest_name';
 
 class AuthStateManager {
   private state: AuthState;
+  private guestIdentity: { userId: string; username: string } | null = null;
   private listeners: Set<AuthStateListener> = new Set();
   private static readonly SESSION_CHECK_TIMEOUT_MS = 20000;
 
@@ -95,6 +96,7 @@ class AuthStateManager {
    * Must be called once at app startup before any UI is shown.
    */
   async initialize(): Promise<AuthState> {
+    if (!isCloudAuthConfigured) return this.state;
     // ── Fast path: synchronous localStorage read ──────────────────────────────
     // If Supabase previously wrote a session to localStorage, read it immediately
     // so the UI knows the user is authenticated before any network calls complete.
@@ -273,21 +275,27 @@ class AuthStateManager {
    * Reused across page reloads so the guest has a consistent multiplayer name.
    */
   private getGuestIdentity(): { userId: string; username: string } {
-    let guestId = localStorage.getItem(GUEST_ID_KEY);
-    let guestName = localStorage.getItem(GUEST_NAME_KEY);
-
-    if (!guestId) {
-      guestId = 'guest_' + Math.random().toString(36).substring(2, 11);
+    if (this.guestIdentity) return this.guestIdentity;
+    let guestId: string | null = null;
+    let guestName: string | null = null;
+    try {
+      guestId = localStorage.getItem(GUEST_ID_KEY);
+      guestName = localStorage.getItem(GUEST_NAME_KEY);
+    } catch { /* Restricted storage: keep this session playable without claiming persistence. */ }
+    if (!guestId || !/^guest_[A-Za-z0-9_-]{1,100}$/.test(guestId)) {
+      guestId = 'guest_' + (globalThis.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2));
+    }
+    guestName = guestName?.trim() || 'Bird_' + guestId.slice(6, 10);
+    if (guestName.length > 48 || /[\x00-\x1f\x7f]/.test(guestName)) {
+      guestName = 'Bird_' + guestId.slice(6, 10);
+    }
+    try {
       localStorage.setItem(GUEST_ID_KEY, guestId);
-    }
-
-    if (!guestName) {
-      guestName = 'Bird_' + guestId.substring(6, 10);
       localStorage.setItem(GUEST_NAME_KEY, guestName);
-    }
-
-    return { userId: guestId, username: guestName };
+    } catch { /* Do not let unavailable storage crash startup. */ }
+    return this.guestIdentity = { userId: guestId, username: guestName };
   }
+
 }
 
 export const authStateManager = new AuthStateManager();

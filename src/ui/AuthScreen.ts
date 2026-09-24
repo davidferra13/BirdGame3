@@ -8,6 +8,7 @@ import { signIn, signUp, signInWithGoogle } from '../services/AuthService';
 import { authStateManager, AuthState } from '../services/AuthStateManager';
 import { migrateGuestDataToAccount } from '../services/GuestMigrationService';
 import { setRememberMe } from '../services/RememberMeService';
+import { isCloudAuthConfigured } from '../services/SupabaseClient';
 
 type AuthMode = 'signin' | 'signup';
 
@@ -23,6 +24,7 @@ export class AuthScreen {
   private errorMessage: HTMLElement;
   private submitBtn: HTMLButtonElement;
   private toggleLink: HTMLElement;
+  private guestButton: HTMLButtonElement;
 
   // Sign In fields
   private signInIdentifier!: HTMLInputElement;
@@ -49,7 +51,8 @@ export class AuthScreen {
     // Card
     const card = document.createElement('div');
     card.style.cssText =
-      'background:rgba(40,50,60,0.95);border-radius:12px;padding:40px;' +
+      'background:rgba(40,50,60,0.95);border-radius:12px;padding:clamp(20px,5vw,40px);' +
+      'box-sizing:border-box;max-height:calc(100dvh - 32px);overflow-y:auto;' +
       'max-width:400px;width:90%;border:1px solid rgba(255,255,255,0.15);' +
       'box-shadow:0 8px 32px rgba(0,0,0,0.5);';
 
@@ -169,6 +172,7 @@ export class AuthScreen {
 
     // Continue as Guest button
     const guestBtn = document.createElement('button');
+    this.guestButton = guestBtn;
     guestBtn.style.cssText =
       'display:block;width:100%;padding:12px;' +
       'background:transparent;border:1px solid rgba(255,255,255,0.2);' +
@@ -196,8 +200,16 @@ export class AuthScreen {
     this.container.appendChild(card);
     document.body.appendChild(this.container);
 
-    // Build initial form
+    // Build initial form; do not offer unavailable account actions.
     this.buildForm();
+    if (!isCloudAuthConfigured) {
+      this.container.setAttribute('aria-label', 'Play Bird Game 3 as a guest');
+      subtitle.textContent = 'Free guest play. No account required.';
+      for (const element of [this.formContainer, this.submitBtn, this.toggleLink,
+        googleDivider, googleBtn, separator]) element.style.display = 'none';
+      guestBtn.textContent = 'PLAY AS GUEST';
+      guestNote.textContent = 'Progress stays in this browser when storage is available. It is not an online backup.';
+    }
   }
 
   setOnComplete(callback: (state: AuthState) => void): void {
@@ -237,6 +249,7 @@ export class AuthScreen {
 
     // Focus the first input
     requestAnimationFrame(() => {
+      if (!isCloudAuthConfigured) { this.guestButton.focus(); return; }
       if (this.mode === 'signin') {
         this.signInIdentifier?.focus();
       } else {
@@ -314,7 +327,7 @@ export class AuthScreen {
     input.style.cssText =
       'width:100%;padding:12px;margin-bottom:12px;' +
       'background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.2);' +
-      'border-radius:6px;color:#fff;font-size:14px;' +
+      'border-radius:6px;color:#fff;font-size:16px;min-height:44px;' +
       'font-family:"Segoe UI",system-ui,sans-serif;outline:none;' +
       'box-sizing:border-box;transition:border-color 0.2s;';
     input.addEventListener('focus', () =>
@@ -478,8 +491,7 @@ export class AuthScreen {
   }
 
   private handleGuest(): void {
-    this.hide();
-    this.onComplete?.(authStateManager.getState());
+    this.completeAuth(authStateManager.getState());
   }
 
   private showError(message: string): void {

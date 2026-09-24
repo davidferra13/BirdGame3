@@ -2,8 +2,8 @@
  * Race Manager — handles checkpoint race creation, joining, and progress tracking.
  */
 
-import { Vector3, RaceState, RaceCheckpoint, RaceParticipant, GameEvent } from './types';
-import { Player } from './Player';
+import { Vector3, RaceState, RaceCheckpoint, RaceParticipant, GameEvent } from './types.js';
+import { Player } from './Player.js';
 
 const RACE_MAX_PARTICIPANTS = 8;
 const RACE_WAIT_TIMEOUT_MS = 30000; // 30s max waiting

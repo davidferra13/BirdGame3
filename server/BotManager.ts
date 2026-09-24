@@ -8,10 +8,10 @@
  * messages with realistic pacing.
  */
 
-import { BotPlayer } from './BotPlayer';
-import { BotChatEngine } from './BotChatEngine';
-import { WorldState } from './WorldState';
-import { Vector3 } from './types';
+import { BotPlayer } from './BotPlayer.js';
+import { BotChatEngine } from './BotChatEngine.js';
+import { WorldState } from './WorldState.js';
+import { Vector3 } from './types.js';
 
 interface BotManagerConfig {
   /** Minimum bots always present */
@@ -44,6 +44,7 @@ export class BotManager {
   private evaluationTimer = 0;
   private lastJoinTime = 0;
   private socialTimer = 0;
+  private pendingSpawns = new Set<ReturnType<typeof setTimeout>>();
 
   // Callbacks for the GameServer to handle
   onBotJoined: ((bot: BotPlayer) => void) | null = null;
@@ -67,7 +68,11 @@ export class BotManager {
     // Spawn initial bots with staggered timing
     const initialCount = this.config.minBots;
     for (let i = 0; i < initialCount; i++) {
-      setTimeout(() => this.spawnBot(), i * 2000); // 2s stagger
+      const timer = setTimeout(() => {
+        this.pendingSpawns.delete(timer);
+        this.spawnBot();
+      }, i * 2000);
+      this.pendingSpawns.add(timer);
     }
     console.log(`BotManager initialized. Target population: ${this.config.targetPopulation}`);
   }
@@ -304,6 +309,8 @@ export class BotManager {
 
   /** Cleanup all bots (server shutdown) */
   destroyAll(): void {
+    for (const timer of this.pendingSpawns) clearTimeout(timer);
+    this.pendingSpawns.clear();
     for (const [botId, bot] of this.bots) {
       this.world.removePlayer(botId);
       bot.destroy();

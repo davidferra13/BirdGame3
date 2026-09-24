@@ -5,26 +5,42 @@
 
 import { createClient, SupabaseClient, User } from '@supabase/supabase-js';
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || '';
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+const SUPABASE_URL = (import.meta.env.VITE_SUPABASE_URL || '').trim();
+const SUPABASE_ANON_KEY = (import.meta.env.VITE_SUPABASE_ANON_KEY || '').trim();
 
-if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-  console.error('Missing Supabase environment variables');
+/** Missing legacy cloud configuration must not prevent local guest play. */
+export const isCloudAuthConfigured = (() => {
+  try {
+    const url = new URL(SUPABASE_URL);
+    return ['https:', 'http:'].includes(url.protocol) && Boolean(SUPABASE_ANON_KEY);
+  } catch { return false; }
+})();
+
+let cloudClient: SupabaseClient | null = null;
+function getCloudClient(): SupabaseClient {
+  if (!isCloudAuthConfigured) {
+    throw new Error('Cloud accounts are unavailable in this build. Continue as a guest.');
+  }
+  if (!cloudClient) {
+    cloudClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      auth: {
+        persistSession: true,
+        autoRefreshToken: true,
+        detectSessionInUrl: true,
+        flowType: 'pkce',
+        lock: async (_name, _timeout, fn) => await fn(),
+      },
+    });
+  }
+  return cloudClient;
 }
 
-// Create singleton Supabase client
-// NOTE: We provide a no-op lock to prevent deadlocks. The default navigator.locks
-// can get permanently held when Promise.race abandons a long-running getSession() call,
-// which then blocks all subsequent auth operations (signIn, signUp, etc.) forever.
-export const supabase: SupabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-  auth: {
-    persistSession: true,
-    autoRefreshToken: true,
-    detectSessionInUrl: true,
-    flowType: 'pkce',
-    lock: async (name: string, acquireTimeout: number, fn: () => Promise<any>) => {
-      return await fn();
-    },
+/** Lazy compatibility facade: never fabricates credentials or successful writes. */
+export const supabase: SupabaseClient = new Proxy({} as SupabaseClient, {
+  get(_target, property) {
+    const client = getCloudClient();
+    const value = Reflect.get(client, property, client);
+    return typeof value === 'function' ? value.bind(client) : value;
   },
 });
 
@@ -32,6 +48,7 @@ export const supabase: SupabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON
  * Get the current authenticated user (with timeout to prevent deadlocks)
  */
 export async function getCurrentUser(): Promise<User | null> {
+  if (!isCloudAuthConfigured) return null;
   try {
     const result = await Promise.race([
       supabase.auth.getUser(),
