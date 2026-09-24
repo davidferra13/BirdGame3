@@ -63,7 +63,7 @@ import { ChatUI } from './ui/ChatUI';
 // PostProcessing removed for performance — rendering directly now
 import { CloudSystem } from './world/Clouds';
 import { Ocean } from './world/Ocean';
-import { createRenderer, createScene, setupLighting, createSky } from './core/GameInitializer';
+import { createRenderer, createScene, setupLighting, createSky, applyGraphicsQuality } from './core/GameInitializer';
 import { PvPManager } from './pvp/PvPManager';
 import { PoopTagMode } from './pvp/modes/PoopTagMode';
 import { RaceMode } from './pvp/modes/RaceMode';
@@ -2663,13 +2663,7 @@ export class Game {
     this.audio.setSFXVolume(s.sfxVolume);
     this.audio.setMusicVolume(s.musicVolume);
 
-    if (s.graphicsQuality === 'low') {
-      this.renderer.setPixelRatio(1);
-    } else if (s.graphicsQuality === 'medium') {
-      this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
-    } else {
-      this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    }
+    applyGraphicsQuality(this.renderer, this.sun, s.graphicsQuality);
   }
 
   /** Clean up all resources to prevent memory leaks on page unload/reload */

@@ -26,14 +26,14 @@ export class SettingsMenu {
     this.container.setAttribute('aria-modal', 'true');
     this.container.setAttribute('aria-labelledby', 'settings-title');
     this.container.style.cssText =
-      'position:absolute;top:0;left:0;width:100%;height:100%;' +
+      'position:fixed;inset:0;width:100%;height:100%;box-sizing:border-box;' +
       'display:none;flex-direction:column;align-items:center;justify-content:center;' +
       'background:rgba(0,0,0,0.85);font-family:"Segoe UI",system-ui,sans-serif;' +
       'color:#fff;z-index:95;';
 
     const panel = document.createElement('div');
     panel.style.cssText =
-      'width:400px;max-height:80vh;overflow-y:auto;padding:30px;' +
+      'width:min(400px,calc(100vw - 32px));box-sizing:border-box;max-height:84vh;max-height:calc(100dvh - 32px);overflow-y:auto;overscroll-behavior:contain;padding:24px;' +
       'background:rgba(40,50,60,0.95);border-radius:8px;border:1px solid rgba(255,255,255,0.15);';
 
     const title = document.createElement('h2');
@@ -59,7 +59,7 @@ export class SettingsMenu {
     // Controls button
     const controlsBtn = document.createElement('button');
     controlsBtn.style.cssText =
-      'display:block;width:100%;padding:10px;margin-top:16px;' +
+      'display:block;width:100%;min-height:44px;padding:10px;margin-top:16px;' +
       'background:rgba(135,206,235,0.15);border:1px solid rgba(135,206,235,0.4);' +
       'color:#87ceeb;font-size:13px;font-weight:bold;cursor:pointer;border-radius:4px;pointer-events:auto;';
     controlsBtn.textContent = 'CONTROLS';
@@ -69,7 +69,7 @@ export class SettingsMenu {
     // Replay Tutorial button
     const tutorialBtn = document.createElement('button');
     tutorialBtn.style.cssText =
-      'display:block;width:100%;padding:10px;margin-top:16px;' +
+      'display:block;width:100%;min-height:44px;padding:10px;margin-top:16px;' +
       'background:rgba(68,255,170,0.15);border:1px solid rgba(68,255,170,0.4);' +
       'color:#44ffaa;font-size:13px;font-weight:bold;cursor:pointer;border-radius:4px;pointer-events:auto;';
     tutorialBtn.textContent = 'REPLAY TUTORIAL';
@@ -82,7 +82,7 @@ export class SettingsMenu {
     // Close button
     const closeBtn = document.createElement('button');
     closeBtn.style.cssText =
-      'display:block;width:100%;padding:12px;margin-top:8px;' +
+      'display:block;width:100%;min-height:44px;padding:12px;margin-top:8px;' +
       'background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.3);' +
       'color:#fff;font-size:14px;font-weight:bold;cursor:pointer;border-radius:4px;pointer-events:auto;';
     closeBtn.textContent = 'CLOSE';
@@ -115,7 +115,7 @@ export class SettingsMenu {
     input.setAttribute('aria-valuemin', String(min));
     input.setAttribute('aria-valuemax', String(max));
     input.setAttribute('aria-valuenow', String(value));
-    input.style.cssText = 'width:100%;pointer-events:auto;cursor:pointer;';
+    input.style.cssText = 'width:100%;min-height:44px;pointer-events:auto;cursor:pointer;';
     input.addEventListener('input', () => {
       const val = parseFloat(input.value);
       input.setAttribute('aria-valuenow', String(val));
@@ -137,6 +137,7 @@ export class SettingsMenu {
 
     const cb = document.createElement('input');
     cb.type = 'checkbox';
+    cb.setAttribute('aria-label', label);
     cb.checked = value;
     cb.style.cssText = 'pointer-events:auto;cursor:pointer;width:18px;height:18px;';
     cb.addEventListener('change', () => onChange(cb.checked));
@@ -156,7 +157,7 @@ export class SettingsMenu {
 
     const sel = document.createElement('select');
     sel.style.cssText =
-      'width:100%;padding:6px;background:#333;color:#fff;border:1px solid #555;' +
+      'width:100%;min-height:44px;font-size:16px;padding:10px;background:#333;color:#fff;border:1px solid #555;' +
       'border-radius:3px;pointer-events:auto;cursor:pointer;';
     for (const opt of options) {
       const o = document.createElement('option');
@@ -165,6 +166,7 @@ export class SettingsMenu {
       if (opt === value) o.selected = true;
       sel.appendChild(o);
     }
+    sel.setAttribute('aria-label', label);
     sel.addEventListener('change', () => onChange(sel.value));
     row.appendChild(sel);
 
@@ -180,14 +182,20 @@ export class SettingsMenu {
     try {
       const saved = localStorage.getItem('birdgame_settings');
       if (saved) {
-        const settings = JSON.parse(saved);
-        this.masterVolume = settings.masterVolume ?? 0.5;
-        this.sfxVolume = settings.sfxVolume ?? 0.7;
-        this.musicVolume = settings.musicVolume ?? 0.3;
-        this.sensitivity = settings.sensitivity ?? 1.0;
-        this.invertY = settings.invertY ?? false;
-        this.showNames = settings.showNames ?? true;
-        this.graphicsQuality = settings.graphicsQuality ?? 'high';
+        const parsed: unknown = JSON.parse(saved);
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return;
+        const settings = parsed as Record<string, unknown>;
+        const number = (value: unknown, fallback: number, min: number, max: number): number =>
+          typeof value === 'number' && Number.isFinite(value)
+            ? Math.min(max, Math.max(min, value)) : fallback;
+        this.masterVolume = number(settings.masterVolume, 0.5, 0, 1);
+        this.sfxVolume = number(settings.sfxVolume, 0.7, 0, 1);
+        this.musicVolume = number(settings.musicVolume, 0.3, 0, 1);
+        this.sensitivity = number(settings.sensitivity, 1, 0.1, 3);
+        this.invertY = typeof settings.invertY === 'boolean' ? settings.invertY : false;
+        this.showNames = typeof settings.showNames === 'boolean' ? settings.showNames : true;
+        this.graphicsQuality = settings.graphicsQuality === 'low' || settings.graphicsQuality === 'medium'
+          ? settings.graphicsQuality : 'high';
       }
     } catch (error) {
       console.warn('Failed to load settings:', error);

@@ -7,21 +7,21 @@ import * as THREE from 'three';
 import { Sky } from 'three/examples/jsm/objects/Sky.js';
 
 export function createRenderer(): THREE.WebGLRenderer {
-  // Remove any existing canvas to prevent flicker from multiple renderers
-  const oldCanvases = document.body.querySelectorAll('canvas');
+  // Replace only the game canvas; preserve unrelated previews and interface canvases
+  const oldCanvases = document.body.querySelectorAll('canvas#game-canvas');
   oldCanvases.forEach((c) => c.parentNode?.removeChild(c));
 
   const renderer = new THREE.WebGLRenderer({
-    antialias: false,
+    antialias: true, // Direct rendering has no FXAA pass; request hardware edge smoothing.
     powerPreference: 'high-performance',
     stencil: false,
     depth: true,
     logarithmicDepthBuffer: true,
   });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.BasicShadowMap;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.shadowMap.autoUpdate = false;
   renderer.domElement.id = 'game-canvas';
   document.body.appendChild(renderer.domElement);
@@ -42,8 +42,8 @@ export function setupLighting(scene: THREE.Scene): THREE.DirectionalLight {
   const sun = new THREE.DirectionalLight(0xfff4e6, 0.8);
   sun.position.set(50, 100, 50);
   sun.castShadow = true;
-  sun.shadow.mapSize.width = 512;
-  sun.shadow.mapSize.height = 512;
+  sun.shadow.mapSize.width = 2048;
+  sun.shadow.mapSize.height = 2048;
   sun.shadow.camera.near = 1;
   sun.shadow.camera.far = 200;
   sun.shadow.camera.left = -80;
@@ -98,4 +98,30 @@ export function createSky(scene: THREE.Scene): { sky: Sky; setSunPosition: (elev
   };
 
   return { sky, setSunPosition };
+}
+
+/** Keep resolution and shadow quality in sync with the existing player setting. */
+export function applyGraphicsQuality(
+  renderer: THREE.WebGLRenderer,
+  sun: THREE.DirectionalLight,
+  quality: 'low' | 'medium' | 'high',
+): void {
+  const low = quality === 'low';
+  const medium = quality === 'medium';
+  const dpr = Number.isFinite(window.devicePixelRatio) && window.devicePixelRatio > 0
+    ? window.devicePixelRatio : 1;
+  renderer.setPixelRatio(Math.min(dpr, low ? 1 : medium ? 1.5 : 2));
+  const requestedSize = low ? 512 : medium ? 1024 : 2048;
+  const size = Math.min(requestedSize, renderer.capabilities.maxTextureSize);
+  const filter = THREE.PCFSoftShadowMap;
+  const changed = sun.shadow.mapSize.x !== size || sun.shadow.mapSize.y !== size
+    || renderer.shadowMap.type !== filter;
+  if (changed) {
+    sun.shadow.map?.dispose();
+    sun.shadow.map = null;
+    sun.shadow.mapSize.set(size, size);
+    renderer.shadowMap.type = filter;
+    sun.shadow.needsUpdate = true;
+    renderer.shadowMap.needsUpdate = true;
+  }
 }
