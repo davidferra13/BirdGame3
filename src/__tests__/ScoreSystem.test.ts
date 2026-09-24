@@ -36,10 +36,10 @@ describe('ScoreSystem', () => {
       expect(scoreSystem.multiplier).toBeGreaterThan(1);
     });
 
-    it('should increase heat', () => {
-      const initialHeat = scoreSystem.heat;
+    it('should not invent heat without a gameplay-provided heat value', () => {
       scoreSystem.onHit();
-      expect(scoreSystem.heat).toBeGreaterThan(initialHeat);
+      expect(scoreSystem.heat).toBe(0);
+      expect(scoreSystem.lastHitHeat).toBe(0);
     });
 
     it('should apply combo bonus multiplier', () => {
@@ -56,10 +56,12 @@ describe('ScoreSystem', () => {
   });
 
   describe('onHitWithValues', () => {
-    it('should use custom coin and heat values', () => {
+    it('should apply custom coin and heat values through reward multipliers', () => {
       scoreSystem.onHitWithValues(50, 2);
-      expect(scoreSystem.coins).toBe(50);
-      expect(scoreSystem.lastHitPoints).toBe(50);
+      expect(scoreSystem.heat).toBe(2);
+      expect(scoreSystem.lastHitHeat).toBe(2);
+      expect(scoreSystem.coins).toBe(64);
+      expect(scoreSystem.lastHitPoints).toBe(64);
     });
 
     it('should track NPC type', () => {
@@ -215,10 +217,10 @@ describe('ScoreSystem', () => {
       scoreSystem.heat = 0;
       expect(scoreSystem.heatFraction).toBe(0);
 
-      scoreSystem.heat = 5; // Half of MAX_HEAT (10)
+      scoreSystem.heat = 25; // Half of MAX_HEAT (50)
       expect(scoreSystem.heatFraction).toBe(0.5);
 
-      scoreSystem.heat = 10; // MAX_HEAT
+      scoreSystem.heat = 50; // MAX_HEAT
       expect(scoreSystem.heatFraction).toBe(1);
     });
 
