@@ -47,3 +47,6 @@ jobs:
         env:
           VITE_WS_URL: wss://example.invalid
           VITE_WORLD_ID: global-1
+
+      - name: Build production server container
+        run: docker build --tag bird-game-server:ci .
